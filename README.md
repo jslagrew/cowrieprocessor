@@ -13,3 +13,11 @@ By default, the script will look for any Cowrie JSON logs in the /srv/cowrie/var
   - --vtapi <VT API Key> --> VirusTotal API Key to enrich data with VT (will also download a local copy in working path with full JSON output)
   - --email <email address> --> Your email address, which will be used to register query with DShield when querying for additional IP address data
   - --path <path to cowrie JSON logs> --> Enter an alernate path where cowrie logs may be stored
+
+**Locally created files**
+
+(script working path)/(filehash) - VirusTotal results for filehash in JSON format (searhed by file hash)
+
+(script working path)/uh_(ipaddress) - URLhaus locally cached lookup results in JSON format (searched by IP)
+
+(script working path)/files_(filehash) - VirusTotal response for files uploaded to VirusTotal
