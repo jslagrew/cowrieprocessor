@@ -1,7 +1,10 @@
 # cowrieprocessor
 The initial purpose of this application is helps simplify command input and file download data from DShield Honeypots (https://github.com/DShield-ISC/dshield). This Python applications is designed to process and summarize Cowrie logs (https://github.com/cowrie/cowrie). 
 
-![Snag_167491c](https://user-images.githubusercontent.com/82918323/169906851-7bd0664f-d51c-470a-89f5-d9c9aa4e785d.png)
+![Snag_1690ca6](https://user-images.githubusercontent.com/82918323/169907140-5a53eb8d-26ae-4fa5-82a2-2bf7782311fa.png)
+
+![Snag_1684520](https://user-images.githubusercontent.com/82918323/169907013-e4235d4a-022b-43e3-addd-2538394dae93.png)
+
 
 By default, the script will look for any Cowrie JSON logs in the /srv/cowrie/var/log/cowrie path (current default for DShield honeypot if setting is enabled to locally store these files). At least one argument to search for relevant data is needed and all other arguments are optional, but may allow for additional data enrichment. 
 
