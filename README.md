@@ -30,13 +30,13 @@ By default, the script will look for any Cowrie JSON logs in the /srv/cowrie/var
 # Command Examples
 
 ```
-python cowrie_processor.py --email <my email address> --vtapi <vt api key> --summarizedays 2
+python process_cowrie.py --email <my email address> --vtapi <vt api key> --summarizedays 2
 ```
 
 _Will output a summary of the last two days of attacks (today and yesterday)._
 
 ```
-python cowrie_processor.py --email <my email address> --vtapi <vt api key> --downloadfile a8460f446be540410004b1a8db4083773fa46f7fe76fa84219c93daa1669f8f2
+python process_cowrie.py --email <my email address> --vtapi <vt api key> --downloadfile a8460f446be540410004b1a8db4083773fa46f7fe76fa84219c93daa1669f8f2
 ```
   
 _Will output attacks seen with the file hash given._
