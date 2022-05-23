@@ -1,5 +1,5 @@
 # cowrieprocessor
-The initial purpose of this application is helps simplify command input and file download data from DShield Honeypots (https://github.com/DShield-ISC/dshield). This Python applications is designed to process and generalize Cowrie logs (https://github.com/cowrie/cowrie). 
+The initial purpose of this application is helps simplify command input and file download data from DShield Honeypots (https://github.com/DShield-ISC/dshield). This Python applications is designed to process and summarize Cowrie logs (https://github.com/cowrie/cowrie). 
 
 ![image](https://user-images.githubusercontent.com/82918323/154689623-c9b8aa9e-8fbd-4d9b-b277-85f0cd68bdcc.png)
 
