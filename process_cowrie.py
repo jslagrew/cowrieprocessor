@@ -8,6 +8,9 @@ import time
 import re
 import datetime
 import argparse
+from pathlib import Path
+
+date = datetime.datetime.now().strftime("%Y_%m_%d-%I:%M:%S_%p")
 
 parser = argparse.ArgumentParser(description='DShield Honeypot Cowrie Data Identifiers')
 parser.add_argument('--logpath', dest='logpath', type=str, help='Path of cowrie json log files', default='/srv/cowrie/var/log/cowrie')
@@ -16,6 +19,7 @@ parser.add_argument('--downloadfile', dest='downloadfile', type=str, help='Name 
 parser.add_argument('--session', dest='session', type=str, help='Cowrie session number')
 parser.add_argument('--vtapi', dest='vtapi', type=str, help='VirusTotal API key (required for VT data lookup)')
 parser.add_argument('--email', dest='email', type=str, help='Your email address (required for DShield IP lookup)')
+parser.add_argument('--summarizedays', dest='summarizedays', type=str, help='Will summarize all attacks in the give number of days')
 
 args = parser.parse_args()
 
@@ -25,10 +29,19 @@ download_file = args.downloadfile
 session_id = args.session
 vtapi = args.vtapi
 email = args.email
+summarizedays = args.summarizedays
+
+os.mkdir(date)
+os.chdir(date)
 
 data = []
 
-file_list = os.listdir(log_location)
+file_list = sorted(Path(log_location).iterdir(), key=os.path.getmtime)
+
+list_of_files = []
+for each_file in file_list:
+    if ".json" in each_file.name:
+        list_of_files.append(each_file.name)
 
 def get_connected_sessions(data):
     sessions = set()
@@ -48,6 +61,14 @@ def get_session_id(data, type, match):
         for each_entry in data:
             if ("shasum" in each_entry):
                 if each_entry['shasum'] == match: 
+                    sessions.add(each_entry['session'])
+    elif (type == "all"):
+        for each_entry in data:
+            if ("shasum" in each_entry):
+                if ("src_ip" in each_entry):
+                    sessions.add(each_entry['session'])
+            if ("ttylog" in each_entry):
+                if ("src_ip" in each_entry):
                     sessions.add(each_entry['session'])
     return sessions
 
@@ -215,29 +236,28 @@ def print_session_info(data, sessions):
         downloaddata = get_file_download(session, data)
         uploaddata = get_file_upload(session, data)
 
-        print("\n----------------------------------------------------\n")
-        print("{:>30s}  {:50s}".format("Session",session))
-        print("{:>30s}  {:50s}".format("Protocol",protocol))
-        print("{:>30s}  {:50s}".format("Username",username))
-        print("{:>30s}  {:50s}".format("Password",password))
-        print("{:>30s}  {:50s}".format("Timestamp",timestamp))
-        print("{:>30s}  {:50s}".format("Source IP Address",src_ip))
-        print("{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(src_ip)))
+        attackstring = "{:>30s}  {:50s}".format("Session",session) + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Protocol",protocol) + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Username",username) + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Password",password) + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Timestamp",timestamp) + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Source IP Address",src_ip) + "\n"
+        attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(src_ip)) + "\n"
 
         if(email):
             json_data = dshield_query(src_ip)
-            print("{:>30s}  {:50s}".format("ASNAME",(json_data['ip']['asname'])))
-            print("{:>30s}  {:50s}".format("ASCOUNTRY",(json_data['ip']['ascountry'])))
-            print("{:>30s}  {:<6d}".format("Total Commands Run",command_count))
+            attackstring += "{:>30s}  {:50s}".format("ASNAME",(json_data['ip']['asname'])) + "\n"
+            attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY",(json_data['ip']['ascountry'])) + "\n"
+            attackstring += "{:>30s}  {:<6d}".format("Total Commands Run",command_count) + "\n"
 
         if len(downloaddata) > 0:
-            print("\n------------------- DOWNLOAD DATA -------------------")
+            attackstring += "\n------------------- DOWNLOAD DATA -------------------\n"
         for each_download in downloaddata:
             if(each_download[1]):
-                print("")
-                print("{:>30s}  {:50s}".format("Download URL",each_download[0]))
-                print("{:>30s}  {:50s}".format("Download SHA-256 Hash",each_download[1]))
-                print("{:>30s}  {:50s}".format("Destination File",each_download[3]))
+                attackstring += "\n"
+                attackstring += "{:>30s}  {:50s}".format("Download URL",each_download[0]) + "\n"
+                attackstring += "{:>30s}  {:50s}".format("Download SHA-256 Hash",each_download[1]) + "\n"
+                attackstring += "{:>30s}  {:50s}".format("Destination File",each_download[3]) + "\n"
 
                 if (not(exists(each_download[1])) and vtapi):
                     vt_query(each_download[1])
@@ -245,31 +265,31 @@ def print_session_info(data, sessions):
 
                 if (exists(each_download[1]) and vtapi):
                     vt_description, vt_threat_classification, vt_first_submission, vt_malicious = read_vt_data(each_download[1])
-                    print("{:>30s}  {:50s}".format("VT Description",(vt_description)))
-                    print("{:>30s}  {:50s}".format("VT Threat Classification",(vt_threat_classification)))
-                    print("{:>30s}  {}".format("VT First Submssion",(datetime.datetime.fromtimestamp(int(vt_first_submission)))))
-                    print("{:>30s}  {:<6d}".format("VT Malicious Hits",(vt_malicious)))
+                    attackstring += "{:>30s}  {:50s}".format("VT Description",(vt_description)) + "\n"
+                    attackstring += "{:>30s}  {:50s}".format("VT Threat Classification",(vt_threat_classification)) + "\n"
+                    attackstring += "{:>30s}  {}".format("VT First Submssion",(datetime.datetime.fromtimestamp(int(vt_first_submission)))) + "\n"
+                    attackstring += "{:>30s}  {:<6d}".format("VT Malicious Hits",(vt_malicious)) + "\n"
 
                 if (each_download[2] != "" and email):
                     if (re.search('[a-zA-Z]', each_download[2])):
-                        print("{:>30s}  {:50s}".format("Download Source Address",each_download[2]))
-                        print("{:>30s}  {:50s}".format("URLhaus Source Tags",read_uh_data(each_download[2])))
+                        attackstring += "{:>30s}  {:50s}".format("Download Source Address",each_download[2]) + "\n"
+                        attackstring += "{:>30s}  {:50s}".format("URLhaus Source Tags",read_uh_data(each_download[2])) + "\n"
 
                     else:
                         json_data = dshield_query(each_download[2])
-                        print("{:>30s}  {:50s}".format("Download Source Address",each_download[2]))
-                        print("{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_download[2])))
-                        print("{:>30s}  {:50s}".format("ASNAME",(json_data['ip']['asname'])))
-                        print("{:>30s}  {:50s}".format("ASCOUNTRY",(json_data['ip']['ascountry'])))
+                        attackstring += "{:>30s}  {:50s}".format("Download Source Address",each_download[2]) + "\n"
+                        attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_download[2])) + "\n"
+                        attackstring += "{:>30s}  {:50s}".format("ASNAME",(json_data['ip']['asname'])) + "\n"
+                        attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY",(json_data['ip']['ascountry'])) + "\n"
 
         if len(uploaddata) > 0:
-            print("\n------------------- UPLOAD DATA -------------------")
+            attackstring += "\n------------------- UPLOAD DATA -------------------\n"
         for each_upload in uploaddata:
             if(each_upload[1]):
-                print("")
-                print("{:>30s}  {:50s}".format("Upload URL",each_upload[0]))
-                print("{:>30s}  {:50s}".format("Upload SHA-256 Hash",each_upload[1]))
-                print("{:>30s}  {:50s}".format("Destination File",each_upload[3]))
+                attackstring += "\n"
+                attackstring += "{:>30s}  {:50s}".format("Upload URL",each_upload[0]) + "\n"
+                attackstring += "{:>30s}  {:50s}".format("Upload SHA-256 Hash",each_upload[1]) + "\n"
+                attackstring += "{:>30s}  {:50s}".format("Destination File",each_upload[3]) + "\n"
 
                 if (not(exists(each_upload[1])) and vtapi):
                     vt_query(each_upload[1])
@@ -277,28 +297,32 @@ def print_session_info(data, sessions):
 
                 if (exists(each_upload[1]) and vtapi):
                     vt_description, vt_threat_classification, vt_first_submission, vt_malicious = read_vt_data(each_upload[1])
-                    print("{:>30s}  {:50s}".format("VT Description",(vt_description)))
-                    print("{:>30s}  {:50s}".format("VT Threat Classification",(vt_threat_classification)))
-                    print("{:>30s}  {}".format("VT First Submssion",(datetime.datetime.fromtimestamp(int(vt_first_submission)))))
-                    print("{:>30s}  {:<6d}".format("VT Malicious Hits",(vt_malicious)))
+                    attackstring += "{:>30s}  {:50s}".format("VT Description",(vt_description)) + "\n"
+                    attackstring += "{:>30s}  {:50s}".format("VT Threat Classification",(vt_threat_classification)) + "\n"
+                    attackstring += "{:>30s}  {}".format("VT First Submssion",(datetime.datetime.fromtimestamp(int(vt_first_submission)))) + "\n"
+                    attackstring += "{:>30s}  {:<6d}".format("VT Malicious Hits",(vt_malicious)) + "\n"
 
                 if (each_upload[2] != "" and email):
                     if (re.search('[a-zA-Z]', each_upload[2])):
-                        print("{:>30s}  {:50s}".format("Upload Source Address",each_upload[2]))
-                        print("{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_upload[2])))
+                        attackstring += "{:>30s}  {:50s}".format("Upload Source Address",each_upload[2]) + "\n"
+                        attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_upload[2])) + "\n"
 
                     else:
                         json_data = dshield_query(each_upload[2])
-                        print("{:>30s}  {:50s}".format("Upload Source Address",each_upload[2]))
-                        print("{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_upload[2])))
-                        print("{:>30s}  {:50s}".format("ASNAME",(json_data['ip']['asname'])))
-                        print("{:>30s}  {:50s}".format("ASCOUNTRY",(json_data['ip']['ascountry'])))
+                        attackstring += "{:>30s}  {:50s}".format("Upload Source Address",each_upload[2]) + "\n"
+                        attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_upload[2])) + "\n"
+                        attackstring += "{:>30s}  {:50s}".format("ASNAME",(json_data['ip']['asname'])) + "\n"
+                        attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY",(json_data['ip']['ascountry'])) + "\n"
 
 
 
-        print("\n////////////////// COMMANDS ATTEMPTED //////////////////\n")
-        print_commands(data, session)
-        print("\n----------------------------------------------------\n")
+        attackstring += "\n////////////////// COMMANDS ATTEMPTED //////////////////\n\n"
+        attackstring += get_commands(data, session) + "\n"
+        attackstring += "\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n\n"
+        print(attackstring)
+        report_file = open(date + "_" + summarizedays + "_day_report.txt","a")
+        report_file.write(attackstring)
+        report_file.close()
 
 def print_summary():
     print("\n\n{:>30s}  {:8.2f}"
@@ -313,28 +337,45 @@ def print_summary():
         .format("Average # of Commands Run",
         sum(command_count_data)/len(command_count_data)))
 
-def print_commands(data, session):
+def get_commands(data, session):
+    commands = ""
     for each_entry in data:
         if each_entry['session'] == session:
             if "cowrie.command.input" in each_entry['eventid']:
-                print("# " + each_entry['input'])
+                commands += "# " + each_entry['input'] + "\n"
+    return commands
 
 if len(file_list) == 0: quit()
-for each_file in file_list:
-    if ".json" in each_file:
-        file_path = log_location + "/" + each_file
-        with open(file_path, 'r') as file:
-            print("Processing file " + file_path)
-            for each_line in file:
-                json_file = json.loads(each_line)
-                data.append(json_file)
-            file.close()
+
+if (summarizedays):
+    days = int(summarizedays)
+    print("Days to summarize: " + str(days))
+    file_list = []
+    i = 0
+    for each_file in list_of_files:
+        if i < int(days):
+            file_list.append(list_of_files.pop())
+            i += 1
+    list_of_files = file_list
+
+for each_file in list_of_files:
+    file_path = log_location + "/" + each_file
+    with open(file_path, 'r') as file:
+        print("Processing file " + file_path)
+        for each_line in file:
+            json_file = json.loads(each_line)
+            data.append(json_file)
+        file.close()
 
 vt_session = requests.session()
 dshield_session = requests.session()
 uh_session = requests.session()
 
-if (session_id):
+if (summarizedays):
+    session_id = get_session_id(data, "all", "unnecessary")
+    print_session_info(data, session_id)
+
+elif (session_id):
     sessions = [session_id]
     print_session_info(data, sessions)
 
@@ -349,4 +390,3 @@ elif (download_file):
 vt_session.close()
 dshield_session.close()
 uh_session.close()
-
