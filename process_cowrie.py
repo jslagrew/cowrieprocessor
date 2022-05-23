@@ -12,7 +12,7 @@ import argparse
 from pathlib import Path
 import collections
 
-date = datetime.datetime.now().strftime("%Y-%m-%d-%I%M%S")
+date = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
 
 parser = argparse.ArgumentParser(description='DShield Honeypot Cowrie Data Identifiers')
 parser.add_argument('--logpath', dest='logpath', type=str, help='Path of cowrie json log files', default='/srv/cowrie/var/log/cowrie')
@@ -42,6 +42,7 @@ number_of_commands = []
 vt_classifications = []
 vt_recent_submissions = set()
 abnormal_attacks = set()
+uncommon_command_counts = set()
 
 file_list = sorted(Path(log_location).iterdir(), key=os.path.getmtime)
 
@@ -235,7 +236,7 @@ def read_vt_data(hash):
     return vt_description, vt_threat_classification, vt_first_submission, vt_malicious
 
 
-def print_session_info(data, sessions):
+def print_session_info(data, sessions, attack_type):
     for session in sessions:
         global attack_count
         attack_count += 1
@@ -278,7 +279,11 @@ def print_session_info(data, sessions):
                     vt_description, vt_threat_classification, vt_first_submission, vt_malicious = read_vt_data(each_download[1])
                     attackstring += "{:>30s}  {:50s}".format("VT Description",(vt_description)) + "\n"
                     attackstring += "{:>30s}  {:50s}".format("VT Threat Classification",(vt_threat_classification)) + "\n"
-                    vt_classifications.append(vt_threat_classification)
+                    if vt_threat_classification == "":
+                        vt_classifications.append("<blank>") 
+                        abnormal_attacks.add(session)
+                    else:
+                        vt_classifications.append(vt_threat_classification)
                     attackstring += "{:>30s}  {}".format("VT First Submssion",(datetime.datetime.fromtimestamp(int(vt_first_submission)))) + "\n"
                     if (datetime.datetime.now() - datetime.datetime.fromtimestamp(int(vt_first_submission))).days <= 5:
                         abnormal_attacks.add(session)
@@ -335,9 +340,21 @@ def print_session_info(data, sessions):
         attackstring += get_commands(data, session) + "\n"
         attackstring += "\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n\n"
         print(attackstring)
-        report_file = open(date + "_" + summarizedays + "_day_report.txt","a")
-        report_file.write(attackstring)
-        report_file.close()
+
+        if (attack_type == "abnormal"):
+            if (summarizedays):
+                report_file = open(date + "_" + summarizedays + "abnormal_day_report.txt","a")
+            else:
+                report_file = open(date + "abnormal_report.txt","a")
+            report_file.write(attackstring)
+            report_file.close()
+        else:
+            if (summarizedays):
+                report_file = open(date + "_" + summarizedays + "_day_report.txt","a")
+            else:
+                report_file = open(date + "_report.txt","a")
+            report_file.write(attackstring)
+            report_file.close()
 
 def print_summary():
     print("\n\n{:>30s}  {:8.2f}"
@@ -388,23 +405,19 @@ uh_session = requests.session()
 
 if (summarizedays):
     session_id = get_session_id(data, "all", "unnecessary")
-    print_session_info(data, session_id)
+    print_session_info(data, session_id, "standard")
 
 elif (session_id):
     sessions = [session_id]
-    print_session_info(data, sessions)
+    print_session_info(data, sessions, "standard")
 
 elif (tty_file):
     session_id = get_session_id(data, "tty", tty_file)
-    print_session_info(data, session_id)
+    print_session_info(data, session_id, "standard")
 
 elif (download_file):
     session_id = get_session_id(data, "download", download_file)
-    print_session_info(data, session_id)
-
-vt_session.close()
-dshield_session.close()
-uh_session.close()
+    print_session_info(data, session_id, "standard")
 
 counts = collections.Counter(number_of_commands)
 number_of_commands = sorted(number_of_commands, key=lambda x: -counts[x])
@@ -419,29 +432,79 @@ for classification in vt_classifications:
     vt_class.add(classification)
 
 
+if (summarizedays):
+    for each_session in session_id:
+        command_count = get_command_total(each_session, data)
+        #if command_count != number_of_commands[0]:
+        if number_of_commands.count(command_count) < 5:
+            abnormal_attacks.add(each_session)
+            uncommon_command_counts.add(each_session)
 
-#attackstring += "{:>30s}  {:50s}".format("Download URL",each_download[0]) + "\n"
 
-summarystring = "{:>35s}  {:10s}".format("Total Number of Attacks:", str(attack_count)) + "\n"
-summarystring += "{:>35s}  {:10s}".format("Most Common Number of Commands:", str(number_of_commands[0])) + "\n"
+elif (session_id):
+    sessions = [session_id]
+    for each_session in sessions:
+        command_count = get_command_total(each_session, data)
+        #if command_count != number_of_commands[0]:
+        if number_of_commands.count(command_count) < 5:
+            abnormal_attacks.add(each_session)
+            uncommon_command_counts.add(each_session)
+
+elif (tty_file):
+    for each_session in session_id:
+        command_count = get_command_total(each_session, data)
+        #if command_count != number_of_commands[0]:
+        if number_of_commands.count(command_count) < 5:
+            abnormal_attacks.add(each_session)
+            uncommon_command_counts.add(each_session)
+
+
+elif (download_file):
+    for each_session in session_id:
+        command_count = get_command_total(each_session, data)
+        #if command_count != number_of_commands[0]:
+        if number_of_commands.count(command_count) < 5:
+            abnormal_attacks.add(each_session)
+            uncommon_command_counts.add(each_session)
+
+print_session_info(data, abnormal_attacks, "abnormal")
+
+vt_session.close()
+dshield_session.close()
+uh_session.close()
+
+summarystring = "{:>40s}  {:10s}".format("Total Number of Attacks:", str(attack_count)) + "\n"
+summarystring += "{:>40s}  {:10s}".format("Most Common Number of Commands:", str(number_of_commands[0])) + "\n"
 summarystring += "\n"
-summarystring += "{:>35s}  {:10s}".format("Number of Commands", "Times Seen") + "\n"
-summarystring += "{:>35s}  {:10s}".format("------------------", "----------") + "\n"
+summarystring += "{:>40s}  {:10s}".format("Number of Commands", "Times Seen") + "\n"
+summarystring += "{:>40s}  {:10s}".format("------------------", "----------") + "\n"
 for command in commands:
-    summarystring += "{:>35s}  {:10s}".format(str(command), str(number_of_commands.count(command))) + "\n"
+    summarystring += "{:>40s}  {:10s}".format(str(command), str(number_of_commands.count(command))) + "\n"
 summarystring += "\n"
-summarystring += "{:^45s}".format("VT Classifications") + "\n"
+summarystring += "{:>48s}".format("VT Classifications") + "\n"
+summarystring += "{:>48s}".format("------------------") + "\n"
 for classification in vt_class:
-    summarystring += "{:>35s}  {:10s}".format(classification, str(vt_classifications.count(classification))) + "\n"
-summarystring += "{:>35s}  {:10s}".format("Attacks With Uncommon Command Counts:", "") + "\n"
-summarystring += "{:>35s}  {:10s}".format("Attacks With Recent VT First Submission:", "") + "\n"
+    summarystring += "{:>40s}  {:10s}".format(classification, str(vt_classifications.count(classification))) + "\n"
+summarystring += "\n"
+summarystring += "{:>60s}".format("Attacks With Uncommon Command Counts", "") + "\n"
+summarystring += "{:>60s}".format("------------------------------------") + "\n"
+for each_submission in uncommon_command_counts:
+    summarystring += "{:>40s}  {:10s}".format("", each_submission) + "\n"
+summarystring += "\n"
+summarystring += "{:>60s}".format("Attacks With Recent VT First Submission") + "\n"
+summarystring += "{:>60s}".format("---------------------------------------") + "\n"
 for each_submission in vt_recent_submissions:
-    summarystring += "{:>35s}  {:10s}".format("", each_submission) + "\n"
-summarystring += "Abnormal Attacks:"
+    summarystring += "{:>40s}  {:10s}".format("", each_submission) + "\n"
+summarystring += "\n"
+summarystring += "{:>50s}".format("Abnormal Attacks") + "\n"
+summarystring += "{:>50s}".format("----------------") + "\n"
 for each_attack in abnormal_attacks:
-    summarystring += "{:>35s}  {:10s}".format("", each_attack) + "\n"
+    summarystring += "{:>40s}  {:10s}".format("", each_attack) + "\n"
 
 print(summarystring)
-report_file = open(date + "_" + summarizedays + "_day_report.txt","a")
+if (summarizedays):
+    report_file = open(date + "_" + summarizedays + "_day_report.txt","a")
+else:
+    report_file = open(date + "_report.txt","a")
 report_file.write(summarystring)
 report_file.close()
