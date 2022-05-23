@@ -13,11 +13,13 @@ By default, the script will look for any Cowrie JSON logs in the /srv/cowrie/var
   - --vtapi <VT API Key> --> VirusTotal API Key to enrich data with VT (will also download a local copy in working path with full JSON output)
   - --email <email address> --> Your email address, which will be used to register query with DShield when querying for additional IP address data
   - --path <path to cowrie JSON logs> --> Enter an alernate path where cowrie logs may be stored
+  - --summarizedays <number of days> --> Outline all attacks and summarize for period of days specified. For example, a value of '1' will reivew only attacks from teh current day. 
+    -This will create two different report text files within the destination folder. One will be the summary for every attack seen in that time period. Another file will contain only attacks that appeared more unique (low or absent virustotal hit count for malware or less than 5 instances of attacks comprised of the same number of commands executed during the attack.
 
 **Locally created files**
 
-(script working path)/(filehash) - VirusTotal results for filehash in JSON format (searhed by file hash)
+(script working path)/<datetime processor run>/(filehash) - VirusTotal results for filehash in JSON format (searhed by file hash)
 
-(script working path)/uh_(ipaddress) - URLhaus locally cached lookup results in JSON format (searched by IP)
+(script working path)/<datetime processor run>/uh_(ipaddress) - URLhaus locally cached lookup results in JSON format (searched by IP)
 
-(script working path)/files_(filehash) - VirusTotal response for files uploaded to VirusTotal
+(script working path)/<datetime processor run>/files_(filehash) - VirusTotal response for files uploaded to VirusTotal
