@@ -343,7 +343,7 @@ def print_session_info(data, sessions, attack_type):
 
         if (attack_type == "abnormal"):
             if (summarizedays):
-                report_file = open(date + "_" + summarizedays + "abnormal_day_report.txt","a")
+                report_file = open(date + "_abnormal_" + summarizedays + "-day_report.txt","a")
             else:
                 report_file = open(date + "abnormal_report.txt","a")
             report_file.write(attackstring)
