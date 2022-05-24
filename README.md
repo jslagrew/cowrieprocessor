@@ -21,11 +21,11 @@ By default, the script will look for any Cowrie JSON logs in the /srv/cowrie/var
 
 **Locally created files**
 
-(script working path)/<datetime processor run>/(filehash) - VirusTotal results for filehash in JSON format (searhed by file hash)
+(script working path)/\<datetime processor run\>/(filehash) - VirusTotal results for filehash in JSON format (searhed by file hash)
 
-(script working path)/<datetime processor run>/uh_(ipaddress) - URLhaus locally cached lookup results in JSON format (searched by IP)
+(script working path)/\<datetime processor run\>/uh_(ipaddress) - URLhaus locally cached lookup results in JSON format (searched by IP)
 
-(script working path)/<datetime processor run>/files_(filehash) - VirusTotal response for files uploaded to VirusTotal
+(script working path)/\<datetime processor run\>/files_(filehash) - VirusTotal response for files uploaded to VirusTotal
 
 # Command Examples
 
