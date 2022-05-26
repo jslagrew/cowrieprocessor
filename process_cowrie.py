@@ -11,6 +11,7 @@ import datetime
 import argparse
 from pathlib import Path
 import collections
+import dropbox
 
 date = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
 
@@ -22,6 +23,7 @@ parser.add_argument('--session', dest='session', type=str, help='Cowrie session 
 parser.add_argument('--vtapi', dest='vtapi', type=str, help='VirusTotal API key (required for VT data lookup)')
 parser.add_argument('--email', dest='email', type=str, help='Your email address (required for DShield IP lookup)')
 parser.add_argument('--summarizedays', dest='summarizedays', type=str, help='Will summarize all attacks in the give number of days')
+parser.add_argument('--dbxapi', dest='dbxapi', type=str, help='Dropbox access token for use with Dropbox upload of summary text files')
 
 args = parser.parse_args()
 
@@ -32,6 +34,7 @@ session_id = args.session
 vtapi = args.vtapi
 email = args.email
 summarizedays = args.summarizedays
+dbxapi = args.dbxapi
 
 os.mkdir(date)
 os.chdir(date)
@@ -467,7 +470,7 @@ elif (download_file):
             abnormal_attacks.add(each_session)
             uncommon_command_counts.add(each_session)
 
-print_session_info(data, abnormal_attacks, "abnormal")
+
 
 vt_session.close()
 dshield_session.close()
@@ -501,10 +504,23 @@ summarystring += "{:>50s}".format("----------------") + "\n"
 for each_attack in abnormal_attacks:
     summarystring += "{:>40s}  {:10s}".format("", each_attack) + "\n"
 
-print(summarystring)
 if (summarizedays):
     report_file = open(date + "_" + summarizedays + "_day_report.txt","a")
 else:
     report_file = open(date + "_report.txt","a")
 report_file.write(summarystring)
 report_file.close()
+
+report_file = open(date + "_abnormal_" + summarizedays + "-day_report.txt","a")
+report_file.write(summarystring)
+report_file.close()
+print_session_info(data, abnormal_attacks, "abnormal")
+
+dbx = dropbox.Dropbox(dbxapi)
+with open(date + "_" + summarizedays + "_day_report.txt", 'rb') as f:
+    dbx.files_upload(f.read(), "/cowriesummaries/" + date + "_" + summarizedays + "_day_report.txt")
+
+with open(date + "_abnormal_" + summarizedays + "-day_report.txt", 'rb') as f:
+    dbx.files_upload(f.read(), "/cowriesummaries/" + date + "_abnormal_" + summarizedays + "-day_report.txt")
+
+print(summarystring)
