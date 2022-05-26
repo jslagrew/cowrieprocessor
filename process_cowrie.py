@@ -511,16 +511,22 @@ else:
 report_file.write(summarystring)
 report_file.close()
 
-report_file = open(date + "_abnormal_" + summarizedays + "-day_report.txt","a")
+if (summarizedays):
+    report_file = open(date + "_abnormal_" + summarizedays + "-day_report.txt","a")
+else:
+    report_file = open(date + "_abnormal_report.txt","a")
 report_file.write(summarystring)
 report_file.close()
 print_session_info(data, abnormal_attacks, "abnormal")
 
-dbx = dropbox.Dropbox(dbxapi)
-with open(date + "_" + summarizedays + "_day_report.txt", 'rb') as f:
-    dbx.files_upload(f.read(), "/cowriesummaries/" + date + "_" + summarizedays + "_day_report.txt")
+if (dbxapi):
+    dbx = dropbox.Dropbox(dbxapi)
+    with open(date + "_" + summarizedays + "_day_report.txt", 'rb') as f:
+        dbx.files_upload(f.read(), "/cowriesummaries/" + date + "_" + summarizedays + "_day_report.txt")
 
-with open(date + "_abnormal_" + summarizedays + "-day_report.txt", 'rb') as f:
-    dbx.files_upload(f.read(), "/cowriesummaries/" + date + "_abnormal_" + summarizedays + "-day_report.txt")
+    with open(date + "_abnormal_" + summarizedays + "-day_report.txt", 'rb') as f:
+        dbx.files_upload(f.read(), "/cowriesummaries/" + date + "_abnormal_" + summarizedays + "-day_report.txt")
+else: 
+    print("No Dropbox account information supplied to allow upload")
 
 print(summarystring)
