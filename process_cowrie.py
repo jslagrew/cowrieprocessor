@@ -522,10 +522,10 @@ print_session_info(data, abnormal_attacks, "abnormal")
 if (dbxapi):
     dbx = dropbox.Dropbox(dbxapi)
     with open(date + "_" + summarizedays + "_day_report.txt", 'rb') as f:
-        dbx.files_upload(f.read(), "/cowriesummaries/" + date + "_" + summarizedays + "_day_report.txt")
+        dbx.files_upload(f.read(), "/" + date + "_" + summarizedays + "_day_report.txt")
 
     with open(date + "_abnormal_" + summarizedays + "-day_report.txt", 'rb') as f:
-        dbx.files_upload(f.read(), "/cowriesummaries/" + date + "_abnormal_" + summarizedays + "-day_report.txt")
+        dbx.files_upload(f.read(), "/" + date + "_abnormal_" + summarizedays + "-day_report.txt")
 else: 
     print("No Dropbox account information supplied to allow upload")
 
