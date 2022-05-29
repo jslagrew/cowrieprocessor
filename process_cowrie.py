@@ -24,6 +24,9 @@ parser.add_argument('--vtapi', dest='vtapi', type=str, help='VirusTotal API key 
 parser.add_argument('--email', dest='email', type=str, help='Your email address (required for DShield IP lookup)')
 parser.add_argument('--summarizedays', dest='summarizedays', type=str, help='Will summarize all attacks in the give number of days')
 parser.add_argument('--dbxapi', dest='dbxapi', type=str, help='Dropbox access token for use with Dropbox upload of summary text files')
+parser.add_argument('--dbxkey', dest='dbxkey', type=str, help='Dropbox app key to be used to get new short-lived API access key')
+parser.add_argument('--dbxsecret', dest='dbxsecret', type=str, help='Dropbox app secret to be used to get new short-lived API access key')
+parser.add_argument('--dbxrefreshtoken', dest='dbxrefreshtoken', type=str, help='Dropbox refresh token to be used to get new short-lived API access key')
 
 args = parser.parse_args()
 
@@ -35,6 +38,9 @@ vtapi = args.vtapi
 email = args.email
 summarizedays = args.summarizedays
 dbxapi = args.dbxapi
+dbxkey = args.dbxkey
+dbxsecret = args.dbxsecret
+dbxrefreshtoken = args.dbxrefreshtoken
 
 os.mkdir(date)
 os.chdir(date)
@@ -521,6 +527,17 @@ print_session_info(data, abnormal_attacks, "abnormal")
 
 if (dbxapi):
     dbx = dropbox.Dropbox(dbxapi)
+    with open(date + "_" + summarizedays + "_day_report.txt", 'rb') as f:
+        dbx.files_upload(f.read(), "/" + date + "_" + summarizedays + "_day_report.txt")
+
+    with open(date + "_abnormal_" + summarizedays + "-day_report.txt", 'rb') as f:
+        dbx.files_upload(f.read(), "/" + date + "_abnormal_" + summarizedays + "-day_report.txt")
+elif (dbxkey and dbxsecret and dbxrefreshtoken):
+    dbx = dropbox.Dropbox(
+            app_key = dbxkey,
+            app_secret = dbxsecret,
+            oauth2_refresh_token = dbxrefreshtoken
+        )
     with open(date + "_" + summarizedays + "_day_report.txt", 'rb') as f:
         dbx.files_upload(f.read(), "/" + date + "_" + summarizedays + "_day_report.txt")
 
