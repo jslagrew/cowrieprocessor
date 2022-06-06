@@ -250,7 +250,13 @@ def print_session_info(data, sessions, attack_type):
         global attack_count
         attack_count += 1
         protocol = get_protocol_login(session, data)
-        username, password, timestamp, src_ip = get_login_data(session, data)
+
+        #try block for partially available data
+        #this is usually needed due to an attack spanning multiple log files not included for processing
+        try:
+            username, password, timestamp, src_ip = get_login_data(session, data)
+        except:
+            continue
         command_count = get_command_total(session, data)
         number_of_commands.append(command_count)
 
@@ -507,8 +513,10 @@ for each_submission in vt_recent_submissions:
 summarystring += "\n"
 summarystring += "{:>50s}".format("Abnormal Attacks") + "\n"
 summarystring += "{:>50s}".format("----------------") + "\n"
+
 for each_attack in abnormal_attacks:
     summarystring += "{:>40s}  {:10s}".format("", each_attack) + "\n"
+summarystring += "\n\n"
 
 if (summarizedays):
     report_file = open(date + "_" + summarizedays + "_day_report.txt","a")
