@@ -12,6 +12,7 @@ import argparse
 from pathlib import Path
 import collections
 import dropbox
+import sqlite3
 
 date = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
 
@@ -56,9 +57,48 @@ uncommon_command_counts = set()
 file_list = sorted(Path(log_location).iterdir(), key=os.path.getmtime)
 
 list_of_files = []
+
 for each_file in file_list:
     if ".json" in each_file.name:
         list_of_files.append(each_file.name)
+
+con = sqlite3.connect('../cowrieprocessor.sqlite')
+
+def initialize_database():
+    cur = con.cursor()
+    cur.execute('''
+            CREATE TABLE IF NOT EXISTS sessions(session text,
+                protocol text,
+                username text,
+                password text,
+                timestamp int,
+                source_ip text,
+                urlhaus_tag text,
+                asname text,
+                ascountry text,
+                total_commands int,
+                added int)''')
+    cur.execute('''
+            CREATE TABLE IF NOT EXISTS commands(session text,
+                command text,
+                timestamp int,
+                added int)''')
+    cur.execute('''
+            CREATE TABLE IF NOT EXISTS files(session text,
+                download_url text,
+                hash text,
+                file_path text,
+                vt_description text,
+                vt_threat_classification text,
+                vt_first_submission int,
+                vt_hits int,
+                src_ip text,
+                urlhaus_tag text,
+                asname text,
+                ascountry text,
+                transfer_method text,
+                added int)''')
+    con.commit()
 
 def get_connected_sessions(data):
     sessions = set()
@@ -247,6 +287,7 @@ def read_vt_data(hash):
 
 def print_session_info(data, sessions, attack_type):
     for session in sessions:
+        cur = con.cursor()
         global attack_count
         attack_count += 1
         protocol = get_protocol_login(session, data)
@@ -286,6 +327,19 @@ def print_session_info(data, sessions, attack_type):
                 attackstring += "{:>30s}  {:50s}".format("Download SHA-256 Hash",each_download[1]) + "\n"
                 attackstring += "{:>30s}  {:50s}".format("Destination File",each_download[3]) + "\n"
 
+                sql = '''SELECT * FROM files WHERE session=? and hash=? and file_path=?'''
+                cur.execute(sql, (session, each_download[1], each_download[3]))
+                rows = cur.fetchall()
+                download_data_needed = len(rows)
+
+                if(download_data_needed > 0):
+                    print("Download data for session " + session + " was already stored within database")
+                else:
+                    sql = '''INSERT INTO files(session, download_url, hash, file_path) VALUES (?,?,?,?)'''
+                    cur.execute(sql, (session, each_download[0], each_download[1], each_download[3]))
+                    con.commit()
+
+
                 if (not(exists(each_download[1])) and vtapi):
                     vt_query(each_download[1])
                     time.sleep(15)
@@ -294,6 +348,12 @@ def print_session_info(data, sessions, attack_type):
                     vt_description, vt_threat_classification, vt_first_submission, vt_malicious = read_vt_data(each_download[1])
                     attackstring += "{:>30s}  {:50s}".format("VT Description",(vt_description)) + "\n"
                     attackstring += "{:>30s}  {:50s}".format("VT Threat Classification",(vt_threat_classification)) + "\n"
+                    if(download_data_needed == 0):
+                        sql = '''UPDATE files SET vt_description=?, vt_threat_classification=?, vt_first_submission=?, 
+                            vt_hits=?, transfer_method=?, added=? WHERE session=? and hash=?'''
+                        cur.execute(sql, (vt_description, vt_threat_classification, vt_first_submission, vt_malicious,
+                            "DOWNLOAD", time.time(), session, each_download[1]))
+                        con.commit()
                     if vt_threat_classification == "":
                         vt_classifications.append("<blank>") 
                         abnormal_attacks.add(session)
@@ -309,13 +369,19 @@ def print_session_info(data, sessions, attack_type):
                     if (re.search('[a-zA-Z]', each_download[2])):
                         attackstring += "{:>30s}  {:50s}".format("Download Source Address",each_download[2]) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("URLhaus Source Tags",read_uh_data(each_download[2])) + "\n"
-
+                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=? WHERE session=? and hash=?'''
+                        cur.execute(sql, (each_download[2], read_uh_data(each_download[2]), session, each_download[1]))
+                        con.commit()
                     else:
                         json_data = dshield_query(each_download[2])
                         attackstring += "{:>30s}  {:50s}".format("Download Source Address",each_download[2]) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_download[2])) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASNAME",(json_data['ip']['asname'])) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY",(json_data['ip']['ascountry'])) + "\n"
+                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=?, asname=?, ascountry=? WHERE session=? and hash=?'''
+                        cur.execute(sql, (each_download[2], read_uh_data(each_download[2]), json_data['ip']['asname'], json_data['ip']['ascountry'], session, each_download[1]))
+                        con.commit()
+
 
         if len(uploaddata) > 0:
             attackstring += "\n------------------- UPLOAD DATA -------------------\n"
@@ -325,6 +391,18 @@ def print_session_info(data, sessions, attack_type):
                 attackstring += "{:>30s}  {:50s}".format("Upload URL",each_upload[0]) + "\n"
                 attackstring += "{:>30s}  {:50s}".format("Upload SHA-256 Hash",each_upload[1]) + "\n"
                 attackstring += "{:>30s}  {:50s}".format("Destination File",each_upload[3]) + "\n"
+
+                sql = '''SELECT * FROM files WHERE session=? and hash=? and file_path=?'''
+                cur.execute(sql, (session, each_upload[1], each_upload[3]))
+                rows = cur.fetchall()
+                upload_data_needed = len(rows)
+
+                if(upload_data_needed > 0):
+                    print("Upload data for session " + session + " was already stored within database")
+                else:
+                    sql = '''INSERT INTO files(session, download_url, hash, file_path) VALUES (?,?,?,?)'''
+                    cur.execute(sql, (session, each_upload[0], each_upload[1], each_upload[3]))
+                    con.commit()
 
                 if (not(exists(each_upload[1])) and vtapi):
                     vt_query(each_upload[1])
@@ -337,10 +415,21 @@ def print_session_info(data, sessions, attack_type):
                     attackstring += "{:>30s}  {}".format("VT First Submssion",(datetime.datetime.fromtimestamp(int(vt_first_submission)))) + "\n"
                     attackstring += "{:>30s}  {:<6d}".format("VT Malicious Hits",(vt_malicious)) + "\n"
 
+                    if(download_data_needed == 0):
+                        sql = '''UPDATE files SET vt_description=?, vt_threat_classification=?, vt_first_submission=?,
+                            vt_hits=?, transfer_method=?, added=? WHERE session=? and hash=?'''
+                        cur.execute(sql, (vt_description, vt_threat_classification, vt_first_submission, vt_malicious,
+                            "UPLOAD", time.time(), session, each_upload[1]))
+                        con.commit()
+
                 if (each_upload[2] != "" and email):
                     if (re.search('[a-zA-Z]', each_upload[2])):
                         attackstring += "{:>30s}  {:50s}".format("Upload Source Address",each_upload[2]) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_upload[2])) + "\n"
+
+                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=? WHERE session=? and hash=?'''
+                        cur.execute(sql, (each_upload[2], read_uh_data(each_upload[2]), session, each_upload[1]))
+                        con.commit()
 
                     else:
                         json_data = dshield_query(each_upload[2])
@@ -349,12 +438,34 @@ def print_session_info(data, sessions, attack_type):
                         attackstring += "{:>30s}  {:50s}".format("ASNAME",(json_data['ip']['asname'])) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY",(json_data['ip']['ascountry'])) + "\n"
 
+                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=?, asname=?, ascountry=? WHERE session=? and hash=?'''
+                        cur.execute(sql, (each_upload[2], read_uh_data(each_upload[2]), json_data['ip']['asname'], json_data['ip']['ascountry'], session, each_upload[1]))
+                        con.commit()
 
 
         attackstring += "\n////////////////// COMMANDS ATTEMPTED //////////////////\n\n"
         attackstring += get_commands(data, session) + "\n"
         attackstring += "\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n\n"
         print(attackstring)
+
+        utc_time = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%fZ")
+        epoch_time = (utc_time - datetime.datetime(1970, 1, 1)).total_seconds()
+        sql = '''SELECT * FROM sessions WHERE session=? and timestamp=?'''
+        #cur = con.cursor()
+        #print(session)
+        cur.execute(sql, (session, epoch_time))
+
+        rows = cur.fetchall()
+        if (len(rows) > 0):
+           print("Data for session " + session + " was already stored within database")
+        else:
+           sql = '''INSERT INTO sessions( session, protocol, username, password, timestamp, source_ip,
+               urlhaus_tag, asname, ascountry, total_commands, added) VALUES (?,?,?,?,?,?,?,?,?,?,?)'''
+           #utc_time = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%fZ")
+           #epoch_time = (utc_time - datetime.datetime(1970, 1, 1)).total_seconds()
+           cur.execute(sql, (session, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip),
+               json_data['ip']['asname'], json_data['ip']['ascountry'], command_count, time.time()))
+           con.commit()
 
         if (attack_type == "abnormal"):
             if (summarizedays):
@@ -385,12 +496,28 @@ def print_summary():
         sum(command_count_data)/len(command_count_data)))
 
 def get_commands(data, session):
+    cur = con.cursor()
     commands = ""
     for each_entry in data:
         if each_entry['session'] == session:
             if "cowrie.command.input" in each_entry['eventid']:
                 commands += "# " + each_entry['input'] + "\n"
+                utc_time = datetime.datetime.strptime(each_entry['timestamp'], "%Y-%m-%dT%H:%M:%S.%fZ")
+                epoch_time = (utc_time - datetime.datetime(1970, 1, 1)).total_seconds()
+                sql = '''SELECT * FROM commands WHERE session=? and command=? and timestamp=?'''
+                cur.execute(sql, (session, each_entry['input'], epoch_time))
+                rows = cur.fetchall()
+                if (len(rows) > 0):
+                    print("Command data for session " + session + " was already stored within database")
+                else:
+                    sql = '''INSERT INTO commands(session, command, timestamp, added) VALUES (?,?,?,?)'''
+                    #utc_time = datetime.datetime.strptime(each_entry['timestamp'], "%Y-%m-%dT%H:%M:%S.%fZ")
+                    #epoch_time = (utc_time - datetime.datetime(1970, 1, 1)).total_seconds()
+                    cur.execute(sql, (session, each_entry['input'], epoch_time, time.time()))
+    con.commit()
     return commands
+
+initialize_database()
 
 if len(file_list) == 0: quit()
 
@@ -555,3 +682,4 @@ else:
     print("No Dropbox account information supplied to allow upload")
 
 print(summarystring)
+con.commit()
