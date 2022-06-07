@@ -526,10 +526,10 @@ if (summarizedays):
     print("Days to summarize: " + str(days))
     file_list = []
     i = 0
-    for each_file in list_of_files:
-        if i < int(days):
+    while (len(list_of_files) > 0 and (i < days)):
+        if (i < days):
             file_list.append(list_of_files.pop())
-            i += 1
+        i += 1
     list_of_files = file_list
 
 for each_file in list_of_files:
