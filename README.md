@@ -17,7 +17,7 @@ By default, the script will look for any Cowrie JSON logs in the /srv/cowrie/var
 - Optional Search Term
   - --vtapi <VT API Key> --> VirusTotal API Key to enrich data with VT (will also download a local copy in working path with full JSON output)
   - --email <email address> --> Your email address, which will be used to register query with DShield when querying for additional IP address data
-  - --path <path to cowrie JSON logs> --> Enter an alernate path where cowrie logs may be stored
+  - --logpath <path to cowrie JSON logs> --> Enter an alernate path where cowrie logs may be stored
   - --dbxapi <Dropbox API Key> --> If included, summary data text reports will be uploaded to Dropbox account within 'cowriesummaries' folder
 
 **Locally created files**
