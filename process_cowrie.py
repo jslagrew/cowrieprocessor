@@ -226,7 +226,14 @@ def dshield_query(ip_address):
 def uh_query(ip_address):
     host = {'host': ip_address}
     url = "https://urlhaus-api.abuse.ch/v1/host/"
-    response = uh_session.post(url, data=host)
+    while True:
+        try:
+            response = uh_session.post(url, data=host)
+        except:
+            print("Exception hit for URLHaus query")
+            #sleep(10)
+            continue
+        break
     json.response = json.loads(response.text)
     file = open("uh_" + ip_address, 'w')
     file.write(response.text)
