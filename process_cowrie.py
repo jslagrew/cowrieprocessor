@@ -306,6 +306,7 @@ def print_session_info(data, sessions, attack_type):
         except:
             continue
         command_count = get_command_total(session, data)
+        print("Command Count: " + str(command_count))
         number_of_commands.append(command_count)
 
         downloaddata = get_file_download(session, data)
@@ -567,6 +568,11 @@ elif (tty_file):
 elif (download_file):
     session_id = get_session_id(data, "download", download_file)
     print_session_info(data, session_id, "standard")
+
+else:    
+    session_id = get_session_id(data, "all", "unnecessary")
+    print_session_info(data, session_id, "standard")
+
 
 counts = collections.Counter(number_of_commands)
 number_of_commands = sorted(number_of_commands, key=lambda x: -counts[x])
