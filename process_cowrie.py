@@ -423,7 +423,7 @@ def print_session_info(data, sessions, attack_type):
                     attackstring += "{:>30s}  {}".format("VT First Submssion",(datetime.datetime.fromtimestamp(int(vt_first_submission)))) + "\n"
                     attackstring += "{:>30s}  {:<6d}".format("VT Malicious Hits",(vt_malicious)) + "\n"
 
-                    if(download_data_needed == 0):
+                    if(upload_data_needed == 0):
                         sql = '''UPDATE files SET vt_description=?, vt_threat_classification=?, vt_first_submission=?,
                             vt_hits=?, transfer_method=?, added=? WHERE session=? and hash=?'''
                         cur.execute(sql, (vt_description, vt_threat_classification, vt_first_submission, vt_malicious,
