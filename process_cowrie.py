@@ -312,13 +312,13 @@ def print_session_info(data, sessions, attack_type):
         downloaddata = get_file_download(session, data)
         uploaddata = get_file_upload(session, data)
 
-        attackstring = "{:>30s}  {:50s}".format("Session",session) + "\n"
-        attackstring += "{:>30s}  {:50s}".format("Protocol",protocol) + "\n"
-        attackstring += "{:>30s}  {:50s}".format("Username",username) + "\n"
-        attackstring += "{:>30s}  {:50s}".format("Password",password) + "\n"
-        attackstring += "{:>30s}  {:50s}".format("Timestamp",timestamp) + "\n"
-        attackstring += "{:>30s}  {:50s}".format("Source IP Address",src_ip) + "\n"
-        attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(src_ip)) + "\n"
+        attackstring = "{:>30s}  {:50s}".format("Session",str(session)) + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Protocol",str(protocol)) + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Username",str(username)) + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Password",str(password)) + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Timestamp",str(timestamp)) + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Source IP Address",str(src_ip)) + "\n"
+        attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",str(read_uh_data(src_ip))) + "\n"
 
         if(email):
             json_data = dshield_query(src_ip)
