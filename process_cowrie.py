@@ -163,7 +163,7 @@ def get_file_download(session, data):
                     try:
                         download_ip = re.findall(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})",each_entry['url'])[0]
                     except:
-                        download_ip = re.findall(r"http\:\/\/(.*)\/",each_entry['url'])[0]
+                        download_ip = re.findall(r"\:\/\/(.*?)\/",each_entry['url'])[0]
                 if "shasum" in each_entry:
                     shasum = each_entry['shasum']
                 if "destfile" in each_entry:
@@ -185,7 +185,7 @@ def get_file_upload(session, data):
                     try:
                         upload_ip = re.findall(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})",each_entry['url'])[0]
                     except:
-                        upload_ip = re.findall(r"http\:\/\/(.*)\/",each_entry['url'])[0]
+                        upload_ip = re.findall(r"\:\/\/(.*?)\/",each_entry['url'])[0]
                 if "shasum" in each_entry:
                     shasum = each_entry['shasum']
                 if "filename" in each_entry:
