@@ -545,7 +545,7 @@ for each_file in list_of_files:
     with open(file_path, 'r') as file:
         print("Processing file " + file_path)
         for each_line in file:
-            json_file = json.loads(each_line)
+            json_file = json.loads(each_line.replace('\0', ''))
             data.append(json_file)
         file.close()
 
