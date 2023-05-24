@@ -238,6 +238,7 @@ def get_session_id(data, type, match):
     return sessions
 
 def get_session_duration(session, data):
+    duration = ""
     for each_entry in data:
         if each_entry['session'] == session:
             if each_entry['eventid'] == "cowrie.session.closed":
