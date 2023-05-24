@@ -28,6 +28,7 @@ parser.add_argument('--dbxapi', dest='dbxapi', type=str, help='Dropbox access to
 parser.add_argument('--dbxkey', dest='dbxkey', type=str, help='Dropbox app key to be used to get new short-lived API access key')
 parser.add_argument('--dbxsecret', dest='dbxsecret', type=str, help='Dropbox app secret to be used to get new short-lived API access key')
 parser.add_argument('--dbxrefreshtoken', dest='dbxrefreshtoken', type=str, help='Dropbox refresh token to be used to get new short-lived API access key')
+parser.add_argument('--spurapi', dest='spurapi', type=str, help='SPUR.us API key to be used for SPUR.us data encrichment')
 
 args = parser.parse_args()
 
@@ -42,6 +43,7 @@ dbxapi = args.dbxapi
 dbxkey = args.dbxkey
 dbxsecret = args.dbxsecret
 dbxrefreshtoken = args.dbxrefreshtoken
+spurapi = args.spurapi
 
 os.mkdir(date)
 os.chdir(date)
@@ -76,6 +78,24 @@ def initialize_database():
                 urlhaus_tag text,
                 asname text,
                 ascountry text,
+                spur_asn text,
+                spur_asn_organization text,
+                spur_organization text,
+                spur_infrastructure text,
+                spur_client_behaviors text,
+                spur_client_proxies text,
+                spur_client_types text,
+                spur_client_count text,
+                spur_client_concentration text,
+                spur_client_countries text,
+                spur_geospread text,
+                spur_risks text,
+                spur_services text,
+                spur_location text,
+                spur_tunnel_anonymous text,
+                spur_tunnel_entries text,
+                spur_tunnel_operator text,
+                spur_tunnel_type text,
                 total_commands int,
                 added int)''')
     cur.execute('''
@@ -96,9 +116,85 @@ def initialize_database():
                 urlhaus_tag text,
                 asname text,
                 ascountry text,
+                spur_asn text,
+                spur_asn_organization text,
+                spur_organization text,
+                spur_infrastructure text,
+                spur_client_behaviors text,
+                spur_client_proxies text,
+                spur_client_types text,
+                spur_client_count text,
+                spur_client_concentration text,
+                spur_client_countries text,
+                spur_geospread text,
+                spur_risks text,
+                spur_services text,
+                spur_location text,
+                spur_tunnel_anonymous text,
+                spur_tunnel_entries text,
+                spur_tunnel_operator text,
+                spur_tunnel_type text,
                 transfer_method text,
                 added int)''')
     con.commit()
+
+    try:
+        #add new columns for spur data in preexisting databases
+        cur.execute('''ALTER TABLE sessions ADD spur_asn text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_asn_organization text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_organization text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_infrastructure text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_client_behaviors text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_client_proxies text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_client_types text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_client_count text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_client_concentration text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_client_countries text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_geospread text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_risks text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_services text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_location text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_tunnel_anonymous text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_tunnel_entries text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_tunnel_operator text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_tunnel_type text''')        
+        cur.execute('''ALTER TABLE files ADD spur_asn text''')
+        cur.execute('''ALTER TABLE files ADD spur_asn_organization text''')
+        cur.execute('''ALTER TABLE files ADD spur_organization text''')
+        cur.execute('''ALTER TABLE files ADD spur_infrastructure text''')
+        cur.execute('''ALTER TABLE files ADD spur_client_behaviors text''')
+        cur.execute('''ALTER TABLE files ADD spur_client_proxies text''')
+        cur.execute('''ALTER TABLE files ADD spur_client_types text''')
+        cur.execute('''ALTER TABLE files ADD spur_client_count text''')
+        cur.execute('''ALTER TABLE files ADD spur_client_concentration text''')
+        cur.execute('''ALTER TABLE files ADD spur_client_countries text''')
+        cur.execute('''ALTER TABLE files ADD spur_geospread text''')
+        cur.execute('''ALTER TABLE files ADD spur_risks text''')
+        cur.execute('''ALTER TABLE files ADD spur_services text''')
+        cur.execute('''ALTER TABLE files ADD spur_location text''')
+        cur.execute('''ALTER TABLE files ADD spur_tunnel_anonymous text''')
+        cur.execute('''ALTER TABLE files ADD spur_tunnel_entries text''')
+        cur.execute('''ALTER TABLE files ADD spur_tunnel_operator text''')
+        cur.execute('''ALTER TABLE files ADD spur_tunnel_type text''')
+        con.commit()        
+    except:
+        print("Failure adding table columns, likely because they already exist...")
+
+    try:
+        #add new columns for spur data in preexisting databases
+        cur.execute('''ALTER TABLE sessions ADD spur_tunnel_anonymous text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_tunnel_entries text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_tunnel_operator text''')
+        cur.execute('''ALTER TABLE sessions ADD spur_tunnel_type text''')      
+        cur.execute('''ALTER TABLE sessions ADD spur_client_proxies text''')  
+        cur.execute('''ALTER TABLE files ADD spur_tunnel_anonymous text''')
+        cur.execute('''ALTER TABLE files ADD spur_tunnel_entries text''')
+        cur.execute('''ALTER TABLE files ADD spur_tunnel_operator text''')
+        cur.execute('''ALTER TABLE files ADD spur_tunnel_type text''')
+        cur.execute('''ALTER TABLE files ADD spur_client_proxies text''')
+        con.commit()        
+    except:
+        print("Failure adding table columns, likely because they already exist...")
 
 def get_connected_sessions(data):
     sessions = set()
@@ -291,6 +387,163 @@ def read_vt_data(hash):
 
     return vt_description, vt_threat_classification, vt_first_submission, vt_malicious
 
+def spur_query(ip_address):
+    spur_session.headers = {'Token': spurapi}
+    #token = {'Token': api_spur}
+    url = "https://api.spur.us/v2/context/" + ip_address
+    while True:
+        try:
+            response = spur_session.get(url)
+        except:
+            print("Exception hit for SPUR query")
+            #sleep(10)
+            continue
+        break
+    json.response = json.loads(response.text)
+    file = open("spur" + "_" +ip_address.replace(":", "_") + ".json", 'w',encoding="utf-8")
+    file.write(response.text)
+    file.close()
+
+def read_spur_data(ip_address):
+    global summary_text
+    if not exists("spur" + "_" + ip_address.replace(":", "_") + ".json"):
+        spur_query(ip_address)
+    spur_data = open("spur" + "_" + ip_address.replace(":", "_") + ".json", 'r',encoding="utf-8")
+    file = ""
+    for eachline in spur_data:
+        file += eachline
+    spur_data.close
+    json_data = json.loads(file)
+
+    spur_list = []
+    if ("as" in json_data):
+        if ("number" in json_data['as']):
+            as_number = json_data['as']['number']
+        else:
+            as_number = ""
+        spur_list.append(as_number)
+
+        if ("organization" in json_data['as']):
+            as_organization = json_data['as']['organization']       
+        else:
+            as_organization = ""    
+        spur_list.append(as_organization)
+
+    if ("organization" in json_data):
+        organization = json_data['organization']
+    else:
+        organization = ""
+    spur_list.append(organization)
+
+    if ("infrastructure" in json_data):
+        infrastructure = json_data['infrastructure']
+    else:
+        infrastructure = ""
+    spur_list.append(infrastructure)
+
+    if ("client" in json_data):
+        if ("behaviors" in json_data['client']):
+            client_behaviors = json_data['client']['behaviors']
+        else:
+            client_behaviors = ""
+        if ("proxies" in json_data['client']):
+            client_proxies = json_data['client']['proxies']
+        else:
+            client_proxies = ""
+        if ("types" in json_data['client']):
+            client_types = json_data['client']['types']
+        else:
+            client_types = ""
+        if ("count" in json_data['client']):
+            client_count = str(json_data['client']['count'])
+        else:
+            client_count = ""
+        if ("concentration" in json_data['client']):
+            client_concentration = json_data['client']['concentration']
+        else:
+            client_concentration = ""
+        if ("countries" in json_data['client']):
+            client_countries = json_data['client']['countries']
+        else:
+            client_countries = ""
+        if ("spread" in json_data['client']):
+            client_spread = json_data['client']['spread']     
+        else:
+            client_spread = ""  
+    else:
+        client_behaviors = ""
+        client_proxies = ""
+        client_types = ""
+        client_count = ""
+        client_concentration = ""
+        client_countries = ""
+        client_spread = ""
+    spur_list.append(client_behaviors)
+    spur_list.append(client_proxies)
+    spur_list.append(client_types)
+    spur_list.append(client_count)
+    spur_list.append(client_concentration)
+    spur_list.append(client_countries)
+    spur_list.append(client_spread)
+
+    if ("risks" in json_data):
+        risks = json_data['risks']
+    else:
+        risks = ""
+    spur_list.append(risks)
+
+    if ("services" in json_data):
+        services = json_data['services']
+    else:
+        services = ""
+    spur_list.append(services)
+
+    if ("location" in json_data):
+        city = ""
+        state = ""
+        country = ""
+        if ("city" in json_data['location']):
+            city = json_data['location']['city'] + ", "
+        if ("state" in json_data['location']):
+            state = json_data['location']['state'] + ", "
+        if ("country" in json_data['location']):
+            country = json_data['location']['country']
+        location = city + state + country
+    else:
+        location = ""
+    spur_list.append(location)
+
+    if ("tunnels" in json_data):
+        tunnels = ""
+        for each_tunnel in json_data['tunnels']:
+            if ("anonymous" in each_tunnel):
+                tunnel_anonymous = each_tunnel['anonymous']
+            else:
+                tunnel_anonymous = ""
+            if ("entries" in each_tunnel):
+                tunnel_entries = each_tunnel['entries']
+            else:
+                tunnel_entries = ""
+            if ("operator" in each_tunnel):
+                tunnel_operator = each_tunnel['operator']
+            else:
+                tunnel_operator = ""
+            if ("type" in each_tunnel):
+                tunnel_type = each_tunnel['type']
+            else:
+                tunnel_type = ""
+    else:
+        tunnel_anonymous = ""
+        tunnel_entries = ""
+        tunnel_operator = ""
+        tunnel_type = ""
+    spur_list.append(tunnel_anonymous)
+    spur_list.append(tunnel_entries)
+    spur_list.append(tunnel_operator)
+    spur_list.append(tunnel_type)
+    
+    return spur_list
+
 
 def print_session_info(data, sessions, attack_type):
     for session in sessions:
@@ -325,6 +578,46 @@ def print_session_info(data, sessions, attack_type):
             attackstring += "{:>30s}  {:50s}".format("ASNAME",(json_data['ip']['asname'])) + "\n"
             attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY",(json_data['ip']['ascountry'])) + "\n"
             attackstring += "{:>30s}  {:<6d}".format("Total Commands Run",command_count) + "\n"
+
+        if(spurapi):
+            spur_session_data = read_spur_data(src_ip)
+            if spur_session_data[0] != "":
+                attackstring += "{:>30s}  {:<50s}".format("SPUR ASN", str(spur_session_data[0])) + "\n"
+            if spur_session_data[1] != "":
+                attackstring += "{:>30s}  {:<50s}".format("SPUR ASN Organization", str(spur_session_data[1])) + "\n"
+            if spur_session_data[2] != "":
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Organization", str(spur_session_data[2])) + "\n"     
+            if spur_session_data[3] != "":                
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Infrastructure", str(spur_session_data[3]))  + "\n"      
+            if spur_session_data[4] != "":                
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Behaviors", str(spur_session_data[4])) + "\n"  
+            if spur_session_data[5] != "":                
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Proxies", str(spur_session_data[5])) + "\n"  
+            if spur_session_data[6] != "":               
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Types", str(spur_session_data[6])) + "\n"  
+            if spur_session_data[7] != "":                
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Count", str(spur_session_data[7])) + "\n"  
+            if spur_session_data[8] != "":               
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Concentration", str(spur_session_data[8])) + "\n"  
+            if spur_session_data[9] != "":                
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Countries", str(spur_session_data[9])) + "\n"    
+            if spur_session_data[10] != "":                
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Geo-spread", str(spur_session_data[10])) + "\n"    
+            if spur_session_data[11] != "":                
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Risks", str(spur_session_data[11])) + "\n"  
+            if spur_session_data[12] != "":                
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Services", str(spur_session_data[12])) + "\n"  
+            if spur_session_data[13] != "":                
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Location", str(spur_session_data[13])) + "\n"  
+            if spur_session_data[14] != "":                
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Anonymous Tunnel", str(spur_session_data[14])) + "\n"   
+            if spur_session_data[15] != "":                
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Entries", str(spur_session_data[15])) + "\n"  
+            if spur_session_data[16] != "":                
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Operator", str(spur_session_data[16])) + "\n"  
+            if spur_session_data[17] != "":                
+                attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Type", str(spur_session_data[17])) + "\n"  
+
 
         if len(downloaddata) > 0:
             attackstring += "\n------------------- DOWNLOAD DATA -------------------\n"
@@ -386,9 +679,89 @@ def print_session_info(data, sessions, attack_type):
                         attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_download[2])) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASNAME",(json_data['ip']['asname'])) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY",(json_data['ip']['ascountry'])) + "\n"
-                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=?, asname=?, ascountry=? WHERE session=? and hash=?'''
-                        cur.execute(sql, (each_download[2], read_uh_data(each_download[2]), json_data['ip']['asname'], json_data['ip']['ascountry'], session, each_download[1]))
+
+                        if(spurapi):
+                            spur_data = read_spur_data(src_ip)
+                            if spur_data[0] != "":
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR ASN", str(spur_data[0])) + "\n"
+                            if spur_data[1] != "":
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR ASN Organization", str(spur_data[1])) + "\n"
+                            if spur_data[2] != "":
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Organization", str(spur_data[2])) + "\n"     
+                            if spur_data[3] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Infrastructure", str(spur_data[3]))  + "\n"      
+                            if spur_data[4] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Behaviors", str(spur_data[4])) + "\n"  
+                            if spur_data[5] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Proxies", str(spur_data[5])) + "\n"  
+                            if spur_data[6] != "":               
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Types", str(spur_data[6])) + "\n"  
+                            if spur_data[7] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Count", str(spur_data[7])) + "\n"  
+                            if spur_data[8] != "":               
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Concentration", str(spur_data[8])) + "\n"  
+                            if spur_data[9] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Countries", str(spur_data[9])) + "\n"    
+                            if spur_data[10] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Geo-spread", str(spur_data[10])) + "\n"    
+                            if spur_data[11] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Risks", str(spur_data[11])) + "\n"  
+                            if spur_data[12] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Services", str(spur_data[12])) + "\n"  
+                            if spur_data[13] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Location", str(spur_data[13])) + "\n"  
+                            if spur_data[14] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Anonymous Tunnel", str(spur_data[14])) + "\n"   
+                            if spur_data[15] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Entries", str(spur_data[15])) + "\n"  
+                            if spur_data[16] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Operator", str(spur_data[16])) + "\n"  
+                            if spur_data[17] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Type", str(spur_data[17])) + "\n"  
+                        
+                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=?, asname=?, ascountry=?,
+                            spur_asn=?,
+                            spur_asn_organization=?,
+                            spur_organization=?,
+                            spur_infrastructure=?,
+                            spur_client_behaviors=?,
+                            spur_client_proxies=?,
+                            spur_client_types=?,
+                            spur_client_count=?,
+                            spur_client_concentration=?,
+                            spur_client_countries=?,
+                            spur_geospread=?,
+                            spur_risks=?,
+                            spur_services=?,
+                            spur_location=?,
+                            spur_tunnel_anonymous=?,
+                            spur_tunnel_entries=?,
+                            spur_tunnel_operator=?,
+                            spur_tunnel_type=?                             
+                            WHERE session=? and hash=?'''
+                        cur.execute(sql, (each_download[2], read_uh_data(each_download[2]), json_data['ip']['asname'], json_data['ip']['ascountry'],
+                                          str(spur_data[0]),
+                                          str(spur_data[1]),
+                                          str(spur_data[2]),
+                                          str(spur_data[3]),
+                                          str(spur_data[4]),
+                                          str(spur_data[5]),
+                                          str(spur_data[6]),
+                                          str(spur_data[7]),
+                                          str(spur_data[8]),
+                                          str(spur_data[9]),
+                                          str(spur_data[10]),
+                                          str(spur_data[11]),
+                                          str(spur_data[12]),
+                                          str(spur_data[13]),
+                                          str(spur_data[14]),
+                                          str(spur_data[15]),
+                                          str(spur_data[16]),
+                                          str(spur_data[17]),
+                                          session, each_download[1]))
                         con.commit()
+
+
 
 
         if len(uploaddata) > 0:
@@ -446,9 +819,88 @@ def print_session_info(data, sessions, attack_type):
                         attackstring += "{:>30s}  {:50s}".format("ASNAME",(json_data['ip']['asname'])) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY",(json_data['ip']['ascountry'])) + "\n"
 
-                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=?, asname=?, ascountry=? WHERE session=? and hash=?'''
-                        cur.execute(sql, (each_upload[2], read_uh_data(each_upload[2]), json_data['ip']['asname'], json_data['ip']['ascountry'], session, each_upload[1]))
+
+                        if(spurapi):
+                            spur_data = read_spur_data(src_ip)
+                            if spur_data[0] != "":
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR ASN", str(spur_data[0])) + "\n"
+                            if spur_data[1] != "":
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR ASN Organization", str(spur_data[1])) + "\n"
+                            if spur_data[2] != "":
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Organization", str(spur_data[2])) + "\n"     
+                            if spur_data[3] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Infrastructure", str(spur_data[3]))  + "\n"      
+                            if spur_data[4] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Behaviors", str(spur_data[4])) + "\n"  
+                            if spur_data[5] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Proxies", str(spur_data[5])) + "\n"  
+                            if spur_data[6] != "":               
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Types", str(spur_data[6])) + "\n"  
+                            if spur_data[7] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Count", str(spur_data[7])) + "\n"  
+                            if spur_data[8] != "":               
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Concentration", str(spur_data[8])) + "\n"  
+                            if spur_data[9] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Countries", str(spur_data[9])) + "\n"    
+                            if spur_data[10] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Geo-spread", str(spur_data[10])) + "\n"    
+                            if spur_data[11] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Risks", str(spur_data[11])) + "\n"  
+                            if spur_data[12] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Services", str(spur_data[12])) + "\n"  
+                            if spur_data[13] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Location", str(spur_data[13])) + "\n"  
+                            if spur_data[14] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Anonymous Tunnel", str(spur_data[14])) + "\n"   
+                            if spur_data[15] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Entries", str(spur_data[15])) + "\n"  
+                            if spur_data[16] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Operator", str(spur_data[16])) + "\n"  
+                            if spur_data[17] != "":                
+                                attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Type", str(spur_data[17])) + "\n"                           
+
+                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=?, asname=?, ascountry=?,
+                            spur_asn=?,
+                            spur_asn_organization=?,
+                            spur_organization=?,
+                            spur_infrastructure=?,
+                            spur_client_behaviors=?,
+                            spur_client_proxies=?,
+                            spur_client_types=?,
+                            spur_client_count=?,
+                            spur_client_concentration=?,
+                            spur_client_countries=?,
+                            spur_geospread=?,
+                            spur_risks=?,
+                            spur_services=?,
+                            spur_location=?,
+                            spur_tunnel_anonymous=?,
+                            spur_tunnel_entries=?,
+                            spur_tunnel_operator=?,
+                            spur_tunnel_type=?                             
+                            WHERE session=? and hash=?'''
+                        cur.execute(sql, (each_upload[2], read_uh_data(each_upload[2]), json_data['ip']['asname'], json_data['ip']['ascountry'],
+                                          str(spur_data[0]),
+                                          str(spur_data[1]),
+                                          str(spur_data[2]),
+                                          str(spur_data[3]),
+                                          str(spur_data[4]),
+                                          str(spur_data[5]),
+                                          str(spur_data[6]),
+                                          str(spur_data[7]),
+                                          str(spur_data[8]),
+                                          str(spur_data[9]),
+                                          str(spur_data[10]),
+                                          str(spur_data[11]),
+                                          str(spur_data[12]),
+                                          str(spur_data[13]),
+                                          str(spur_data[14]),
+                                          str(spur_data[15]),
+                                          str(spur_data[16]),
+                                          str(spur_data[17]),
+                                          session, each_upload[1]))
                         con.commit()
+
 
 
         attackstring += "\n////////////////// COMMANDS ATTEMPTED //////////////////\n\n"
@@ -459,34 +911,73 @@ def print_session_info(data, sessions, attack_type):
         utc_time = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%fZ")
         epoch_time = (utc_time - datetime.datetime(1970, 1, 1)).total_seconds()
         sql = '''SELECT * FROM sessions WHERE session=? and timestamp=?'''
-        #cur = con.cursor()
-        #print(session)
         cur.execute(sql, (session, epoch_time))
 
         rows = cur.fetchall()
         if (len(rows) > 0):
-           print("Data for session " + session + " was already stored within database")
+            print("Data for session " + session + " was already stored within database")
         else:
-           sql = '''INSERT INTO sessions( session, protocol, username, password, timestamp, source_ip,
-               urlhaus_tag, asname, ascountry, total_commands, added) VALUES (?,?,?,?,?,?,?,?,?,?,?)'''
-           #utc_time = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%fZ")
-           #epoch_time = (utc_time - datetime.datetime(1970, 1, 1)).total_seconds()
-           cur.execute(sql, (session, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip),
-               json_data['ip']['asname'], json_data['ip']['ascountry'], command_count, time.time()))
-           con.commit()
+            sql = '''INSERT INTO sessions( session, protocol, username, password, timestamp, source_ip,
+                urlhaus_tag, asname, ascountry, total_commands, added) VALUES (?,?,?,?,?,?,?,?,?,?,?)'''
+        
+            cur.execute(sql, (session, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip),
+                json_data['ip']['asname'], json_data['ip']['ascountry'], command_count, time.time()))
+            con.commit()
+
+            sql = '''UPDATE sessions SET 
+                spur_asn=?,
+                spur_asn_organization=?,
+                spur_organization=?,
+                spur_infrastructure=?,
+                spur_client_behaviors=?,
+                spur_client_proxies=?,
+                spur_client_types=?,
+                spur_client_count=?,
+                spur_client_concentration=?,
+                spur_client_countries=?,
+                spur_geospread=?,
+                spur_risks=?,
+                spur_services=?,
+                spur_location=?,
+                spur_tunnel_anonymous=?,
+                spur_tunnel_entries=?,
+                spur_tunnel_operator=?,
+                spur_tunnel_type=?                             
+                WHERE session=? and timestamp=?'''
+            cur.execute(sql, (str(spur_session_data[0]),
+                                str(spur_session_data[1]),
+                                str(spur_session_data[2]),
+                                str(spur_session_data[3]),
+                                str(spur_session_data[4]),
+                                str(spur_session_data[5]),
+                                str(spur_session_data[6]),
+                                str(spur_session_data[7]),
+                                str(spur_session_data[8]),
+                                str(spur_session_data[9]),
+                                str(spur_session_data[10]),
+                                str(spur_session_data[11]),
+                                str(spur_session_data[12]),
+                                str(spur_session_data[13]),
+                                str(spur_session_data[14]),
+                                str(spur_session_data[15]),
+                                str(spur_session_data[16]),
+                                str(spur_session_data[17]),
+                                session, epoch_time))
+            con.commit()
+
 
         if (attack_type == "abnormal"):
             if (summarizedays):
-                report_file = open(date + "_abnormal_" + summarizedays + "-day_report.txt","a")
+                report_file = open(date + "_abnormal_" + summarizedays + "-day_report.txt","a", encoding="utf-8")
             else:
-                report_file = open(date + "abnormal_report.txt","a")
+                report_file = open(date + "abnormal_report.txt","a", encoding="utf-8")
             report_file.write(attackstring)
             report_file.close()
         else:
             if (summarizedays):
-                report_file = open(date + "_" + summarizedays + "_day_report.txt","a")
+                report_file = open(date + "_" + summarizedays + "_day_report.txt","a", encoding="utf-8")
             else:
-                report_file = open(date + "_report.txt","a")
+                report_file = open(date + "_report.txt","a", encoding="utf-8")
             report_file.write(attackstring)
             report_file.close()
 
@@ -552,6 +1043,7 @@ for each_file in list_of_files:
 vt_session = requests.session()
 dshield_session = requests.session()
 uh_session = requests.session()
+spur_session = requests.session()
 
 if (summarizedays):
     session_id = get_session_id(data, "all", "unnecessary")
@@ -627,6 +1119,7 @@ elif (download_file):
 vt_session.close()
 dshield_session.close()
 uh_session.close()
+spur_session.close()
 
 summarystring = "{:>40s}  {:10s}".format("Total Number of Attacks:", str(attack_count)) + "\n"
 summarystring += "{:>40s}  {:10s}".format("Most Common Number of Commands:", str(number_of_commands[0])) + "\n"
