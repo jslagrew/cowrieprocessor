@@ -45,6 +45,10 @@ dbxsecret = args.dbxsecret
 dbxrefreshtoken = args.dbxrefreshtoken
 spurapi = args.spurapi
 
+#string prepended to filename for report summaries
+#may want a '_' at the start of this string for readability
+filename_prepend = ""
+
 os.mkdir(date)
 os.chdir(date)
 
@@ -583,7 +587,7 @@ def print_session_info(data, sessions, attack_type):
         uploaddata = get_file_upload(session, data)
 
         attackstring = "{:>30s}  {:50s}".format("Session",str(session)) + "\n"
-        attackstring = "{:>30s}  {:50s}".format("Session Duration",str(session_duration)) + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Session Duration",str(session_duration)[0:5] + " seconds") + "\n"
         attackstring += "{:>30s}  {:50s}".format("Protocol",str(protocol)) + "\n"
         attackstring += "{:>30s}  {:50s}".format("Username",str(username)) + "\n"
         attackstring += "{:>30s}  {:50s}".format("Password",str(password)) + "\n"
@@ -1187,10 +1191,10 @@ print_session_info(data, abnormal_attacks, "abnormal")
 if (dbxapi):
     dbx = dropbox.Dropbox(dbxapi)
     with open(date + "_" + summarizedays + "_day_report.txt", 'rb') as f:
-        dbx.files_upload(f.read(), "/" + date + "_" + summarizedays + "_day_report.txt")
+        dbx.files_upload(f.read(), "/" + date + filename_prepend + "_" + summarizedays + "_day_report.txt")
 
     with open(date + "_abnormal_" + summarizedays + "-day_report.txt", 'rb') as f:
-        dbx.files_upload(f.read(), "/" + date + "_abnormal_" + summarizedays + "-day_report.txt")
+        dbx.files_upload(f.read(), "/" + date + filename_prepend + "_abnormal_" + summarizedays + "-day_report.txt")
 elif (dbxkey and dbxsecret and dbxrefreshtoken):
     dbx = dropbox.Dropbox(
             app_key = dbxkey,
@@ -1198,10 +1202,10 @@ elif (dbxkey and dbxsecret and dbxrefreshtoken):
             oauth2_refresh_token = dbxrefreshtoken
         )
     with open(date + "_" + summarizedays + "_day_report.txt", 'rb') as f:
-        dbx.files_upload(f.read(), "/" + date + "_" + summarizedays + "_day_report.txt")
+        dbx.files_upload(f.read(), "/" + date + filename_prepend + "_" + summarizedays + "_day_report.txt")
 
     with open(date + "_abnormal_" + summarizedays + "-day_report.txt", 'rb') as f:
-        dbx.files_upload(f.read(), "/" + date + "_abnormal_" + summarizedays + "-day_report.txt")
+        dbx.files_upload(f.read(), "/" + date + filename_prepend + "_abnormal_" + summarizedays + "-day_report.txt")
 else: 
     print("No Dropbox account information supplied to allow upload")
 
