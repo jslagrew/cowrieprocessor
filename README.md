@@ -19,6 +19,7 @@ By default, the script will look for any Cowrie JSON logs in the /srv/cowrie/var
   - --dbxkey <Dropbox access token> --> short-lived API access key for Dropbox account
   - --dbxsecret <Dropbox access secret> --> secret used with associated short-lived API access key
   - --dbxrefreshtoken <Dropbox refresh token> --> refresh token used to get new short-lived API access key
+  - --spurapi <SPUR.us API key> --> If included, IP address data will be enriched with SPUR.us data for summary, upload and download data
 
 **Locally created files**
 
