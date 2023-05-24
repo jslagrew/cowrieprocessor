@@ -70,6 +70,7 @@ def initialize_database():
     cur = con.cursor()
     cur.execute('''
             CREATE TABLE IF NOT EXISTS sessions(session text,
+                session_duration int,
                 protocol text,
                 username text,
                 password text,
@@ -196,6 +197,13 @@ def initialize_database():
     except:
         print("Failure adding table columns, likely because they already exist...")
 
+    try:
+        #add new columns for spur data in preexisting databases
+        cur.execute('''ALTER TABLE sessions ADD session_duration int''')
+        con.commit()        
+    except:
+        print("Failure adding table columns, likely because they already exist...")        
+
 def get_connected_sessions(data):
     sessions = set()
     for each_entry in data:
@@ -224,6 +232,14 @@ def get_session_id(data, type, match):
                 if ("src_ip" in each_entry):
                     sessions.add(each_entry['session'])
     return sessions
+
+def get_session_duration(session, data):
+    for each_entry in data:
+        if each_entry['session'] == session:
+            if each_entry['eventid'] == "cowrie.session.closed":
+                duration = each_entry['duration']
+
+    return duration
 
 def get_protocol_login(session, data):
     for each_entry in data:
@@ -551,6 +567,7 @@ def print_session_info(data, sessions, attack_type):
         global attack_count
         attack_count += 1
         protocol = get_protocol_login(session, data)
+        session_duration = get_session_duration(session, data)
 
         #try block for partially available data
         #this is usually needed due to an attack spanning multiple log files not included for processing
@@ -566,6 +583,7 @@ def print_session_info(data, sessions, attack_type):
         uploaddata = get_file_upload(session, data)
 
         attackstring = "{:>30s}  {:50s}".format("Session",str(session)) + "\n"
+        attackstring = "{:>30s}  {:50s}".format("Session Duration",str(session_duration)) + "\n"
         attackstring += "{:>30s}  {:50s}".format("Protocol",str(protocol)) + "\n"
         attackstring += "{:>30s}  {:50s}".format("Username",str(username)) + "\n"
         attackstring += "{:>30s}  {:50s}".format("Password",str(password)) + "\n"
@@ -917,10 +935,10 @@ def print_session_info(data, sessions, attack_type):
         if (len(rows) > 0):
             print("Data for session " + session + " was already stored within database")
         else:
-            sql = '''INSERT INTO sessions( session, protocol, username, password, timestamp, source_ip,
-                urlhaus_tag, asname, ascountry, total_commands, added) VALUES (?,?,?,?,?,?,?,?,?,?,?)'''
+            sql = '''INSERT INTO sessions( session, session_duration, protocol, username, password, timestamp, source_ip,
+                urlhaus_tag, asname, ascountry, total_commands, added) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'''
         
-            cur.execute(sql, (session, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip),
+            cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip),
                 json_data['ip']['asname'], json_data['ip']['ascountry'], command_count, time.time()))
             con.commit()
 
