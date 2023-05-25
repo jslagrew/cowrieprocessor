@@ -1196,6 +1196,10 @@ if (dbxapi):
 
     with open(date + "_abnormal_" + summarizedays + "-day_report.txt", 'rb') as f:
         dbx.files_upload(f.read(), "/" + date + filename_prepend + "_abnormal_" + summarizedays + "-day_report.txt")
+
+    with open("../cowrieprocessor.sqlite", 'rb') as f:
+        dbx.files_upload(f.read(), "/" + date + filename_prepend + "_cowrieprocessor.sqlite")
+
 elif (dbxkey and dbxsecret and dbxrefreshtoken):
     dbx = dropbox.Dropbox(
             app_key = dbxkey,
@@ -1207,6 +1211,10 @@ elif (dbxkey and dbxsecret and dbxrefreshtoken):
 
     with open(date + "_abnormal_" + summarizedays + "-day_report.txt", 'rb') as f:
         dbx.files_upload(f.read(), "/" + date + filename_prepend + "_abnormal_" + summarizedays + "-day_report.txt")
+
+    with open("../cowrieprocessor.sqlite", 'rb') as f:
+        dbx.files_upload(f.read(), "/" + date + filename_prepend + "_cowrieprocessor.sqlite")
+
 else: 
     print("No Dropbox account information supplied to allow upload")
 
