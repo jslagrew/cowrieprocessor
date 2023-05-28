@@ -742,47 +742,47 @@ def print_session_info(data, sessions, attack_type):
                             if spur_data[17] != "":                
                                 attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Type", str(spur_data[17])) + "\n"  
                         
-                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=?, asname=?, ascountry=?,
-                            spur_asn=?,
-                            spur_asn_organization=?,
-                            spur_organization=?,
-                            spur_infrastructure=?,
-                            spur_client_behaviors=?,
-                            spur_client_proxies=?,
-                            spur_client_types=?,
-                            spur_client_count=?,
-                            spur_client_concentration=?,
-                            spur_client_countries=?,
-                            spur_geospread=?,
-                            spur_risks=?,
-                            spur_services=?,
-                            spur_location=?,
-                            spur_tunnel_anonymous=?,
-                            spur_tunnel_entries=?,
-                            spur_tunnel_operator=?,
-                            spur_tunnel_type=?                             
-                            WHERE session=? and hash=?'''
-                        cur.execute(sql, (each_download[2], read_uh_data(each_download[2]), json_data['ip']['asname'], json_data['ip']['ascountry'],
-                                          str(spur_data[0]),
-                                          str(spur_data[1]),
-                                          str(spur_data[2]),
-                                          str(spur_data[3]),
-                                          str(spur_data[4]),
-                                          str(spur_data[5]),
-                                          str(spur_data[6]),
-                                          str(spur_data[7]),
-                                          str(spur_data[8]),
-                                          str(spur_data[9]),
-                                          str(spur_data[10]),
-                                          str(spur_data[11]),
-                                          str(spur_data[12]),
-                                          str(spur_data[13]),
-                                          str(spur_data[14]),
-                                          str(spur_data[15]),
-                                          str(spur_data[16]),
-                                          str(spur_data[17]),
-                                          session, each_download[1]))
-                        con.commit()
+                            sql = '''UPDATE files SET src_ip=?, urlhaus_tag=?, asname=?, ascountry=?,
+                                spur_asn=?,
+                                spur_asn_organization=?,
+                                spur_organization=?,
+                                spur_infrastructure=?,
+                                spur_client_behaviors=?,
+                                spur_client_proxies=?,
+                                spur_client_types=?,
+                                spur_client_count=?,
+                                spur_client_concentration=?,
+                                spur_client_countries=?,
+                                spur_geospread=?,
+                                spur_risks=?,
+                                spur_services=?,
+                                spur_location=?,
+                                spur_tunnel_anonymous=?,
+                                spur_tunnel_entries=?,
+                                spur_tunnel_operator=?,
+                                spur_tunnel_type=?                             
+                                WHERE session=? and hash=?'''
+                            cur.execute(sql, (each_download[2], read_uh_data(each_download[2]), json_data['ip']['asname'], json_data['ip']['ascountry'],
+                                            str(spur_data[0]),
+                                            str(spur_data[1]),
+                                            str(spur_data[2]),
+                                            str(spur_data[3]),
+                                            str(spur_data[4]),
+                                            str(spur_data[5]),
+                                            str(spur_data[6]),
+                                            str(spur_data[7]),
+                                            str(spur_data[8]),
+                                            str(spur_data[9]),
+                                            str(spur_data[10]),
+                                            str(spur_data[11]),
+                                            str(spur_data[12]),
+                                            str(spur_data[13]),
+                                            str(spur_data[14]),
+                                            str(spur_data[15]),
+                                            str(spur_data[16]),
+                                            str(spur_data[17]),
+                                            session, each_download[1]))
+                            con.commit()
 
 
 
@@ -882,47 +882,47 @@ def print_session_info(data, sessions, attack_type):
                             if spur_data[17] != "":                
                                 attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Type", str(spur_data[17])) + "\n"                           
 
-                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=?, asname=?, ascountry=?,
-                            spur_asn=?,
-                            spur_asn_organization=?,
-                            spur_organization=?,
-                            spur_infrastructure=?,
-                            spur_client_behaviors=?,
-                            spur_client_proxies=?,
-                            spur_client_types=?,
-                            spur_client_count=?,
-                            spur_client_concentration=?,
-                            spur_client_countries=?,
-                            spur_geospread=?,
-                            spur_risks=?,
-                            spur_services=?,
-                            spur_location=?,
-                            spur_tunnel_anonymous=?,
-                            spur_tunnel_entries=?,
-                            spur_tunnel_operator=?,
-                            spur_tunnel_type=?                             
-                            WHERE session=? and hash=?'''
-                        cur.execute(sql, (each_upload[2], read_uh_data(each_upload[2]), json_data['ip']['asname'], json_data['ip']['ascountry'],
-                                          str(spur_data[0]),
-                                          str(spur_data[1]),
-                                          str(spur_data[2]),
-                                          str(spur_data[3]),
-                                          str(spur_data[4]),
-                                          str(spur_data[5]),
-                                          str(spur_data[6]),
-                                          str(spur_data[7]),
-                                          str(spur_data[8]),
-                                          str(spur_data[9]),
-                                          str(spur_data[10]),
-                                          str(spur_data[11]),
-                                          str(spur_data[12]),
-                                          str(spur_data[13]),
-                                          str(spur_data[14]),
-                                          str(spur_data[15]),
-                                          str(spur_data[16]),
-                                          str(spur_data[17]),
-                                          session, each_upload[1]))
-                        con.commit()
+                            sql = '''UPDATE files SET src_ip=?, urlhaus_tag=?, asname=?, ascountry=?,
+                                spur_asn=?,
+                                spur_asn_organization=?,
+                                spur_organization=?,
+                                spur_infrastructure=?,
+                                spur_client_behaviors=?,
+                                spur_client_proxies=?,
+                                spur_client_types=?,
+                                spur_client_count=?,
+                                spur_client_concentration=?,
+                                spur_client_countries=?,
+                                spur_geospread=?,
+                                spur_risks=?,
+                                spur_services=?,
+                                spur_location=?,
+                                spur_tunnel_anonymous=?,
+                                spur_tunnel_entries=?,
+                                spur_tunnel_operator=?,
+                                spur_tunnel_type=?                             
+                                WHERE session=? and hash=?'''
+                            cur.execute(sql, (each_upload[2], read_uh_data(each_upload[2]), json_data['ip']['asname'], json_data['ip']['ascountry'],
+                                            str(spur_data[0]),
+                                            str(spur_data[1]),
+                                            str(spur_data[2]),
+                                            str(spur_data[3]),
+                                            str(spur_data[4]),
+                                            str(spur_data[5]),
+                                            str(spur_data[6]),
+                                            str(spur_data[7]),
+                                            str(spur_data[8]),
+                                            str(spur_data[9]),
+                                            str(spur_data[10]),
+                                            str(spur_data[11]),
+                                            str(spur_data[12]),
+                                            str(spur_data[13]),
+                                            str(spur_data[14]),
+                                            str(spur_data[15]),
+                                            str(spur_data[16]),
+                                            str(spur_data[17]),
+                                            session, each_upload[1]))
+                            con.commit()
 
 
 
@@ -947,46 +947,47 @@ def print_session_info(data, sessions, attack_type):
                 json_data['ip']['asname'], json_data['ip']['ascountry'], command_count, time.time()))
             con.commit()
 
-            sql = '''UPDATE sessions SET 
-                spur_asn=?,
-                spur_asn_organization=?,
-                spur_organization=?,
-                spur_infrastructure=?,
-                spur_client_behaviors=?,
-                spur_client_proxies=?,
-                spur_client_types=?,
-                spur_client_count=?,
-                spur_client_concentration=?,
-                spur_client_countries=?,
-                spur_geospread=?,
-                spur_risks=?,
-                spur_services=?,
-                spur_location=?,
-                spur_tunnel_anonymous=?,
-                spur_tunnel_entries=?,
-                spur_tunnel_operator=?,
-                spur_tunnel_type=?                             
-                WHERE session=? and timestamp=?'''
-            cur.execute(sql, (str(spur_session_data[0]),
-                                str(spur_session_data[1]),
-                                str(spur_session_data[2]),
-                                str(spur_session_data[3]),
-                                str(spur_session_data[4]),
-                                str(spur_session_data[5]),
-                                str(spur_session_data[6]),
-                                str(spur_session_data[7]),
-                                str(spur_session_data[8]),
-                                str(spur_session_data[9]),
-                                str(spur_session_data[10]),
-                                str(spur_session_data[11]),
-                                str(spur_session_data[12]),
-                                str(spur_session_data[13]),
-                                str(spur_session_data[14]),
-                                str(spur_session_data[15]),
-                                str(spur_session_data[16]),
-                                str(spur_session_data[17]),
-                                session, epoch_time))
-            con.commit()
+            if(spurapi):
+                sql = '''UPDATE sessions SET 
+                    spur_asn=?,
+                    spur_asn_organization=?,
+                    spur_organization=?,
+                    spur_infrastructure=?,
+                    spur_client_behaviors=?,
+                    spur_client_proxies=?,
+                    spur_client_types=?,
+                    spur_client_count=?,
+                    spur_client_concentration=?,
+                    spur_client_countries=?,
+                    spur_geospread=?,
+                    spur_risks=?,
+                    spur_services=?,
+                    spur_location=?,
+                    spur_tunnel_anonymous=?,
+                    spur_tunnel_entries=?,
+                    spur_tunnel_operator=?,
+                    spur_tunnel_type=?                             
+                    WHERE session=? and timestamp=?'''
+                cur.execute(sql, (str(spur_session_data[0]),
+                                    str(spur_session_data[1]),
+                                    str(spur_session_data[2]),
+                                    str(spur_session_data[3]),
+                                    str(spur_session_data[4]),
+                                    str(spur_session_data[5]),
+                                    str(spur_session_data[6]),
+                                    str(spur_session_data[7]),
+                                    str(spur_session_data[8]),
+                                    str(spur_session_data[9]),
+                                    str(spur_session_data[10]),
+                                    str(spur_session_data[11]),
+                                    str(spur_session_data[12]),
+                                    str(spur_session_data[13]),
+                                    str(spur_session_data[14]),
+                                    str(spur_session_data[15]),
+                                    str(spur_session_data[16]),
+                                    str(spur_session_data[17]),
+                                    session, epoch_time))
+                con.commit()
 
 
         if (attack_type == "abnormal"):
@@ -1095,6 +1096,19 @@ commands = set()
 for num_count in number_of_commands:
     commands.add(num_count)
 
+command_number_dict = {}
+abnormal_command_counts = []
+for command in commands:
+    #number of commands --> command
+    #number of times the number of commands has been seen --> number_of_commands.count(command)
+    command_number_dict[command] = number_of_commands.count(command)
+
+command_number_dict = sorted(command_number_dict.items(), key=lambda x:x[1])
+for key, value in command_number_dict:
+    abnormal_command_counts.append(key)
+    
+abnormal_command_counts = abnormal_command_counts[:int(len(abnormal_command_counts)*(2/3)):]
+
 vt_counts = collections.Counter(vt_classifications)
 vt_classifications = sorted(vt_classifications, key=lambda x: -vt_counts[x])
 vt_class = set()
@@ -1102,11 +1116,12 @@ for classification in vt_classifications:
     vt_class.add(classification)
 
 
+
 if (summarizedays):
     for each_session in session_id:
         command_count = get_command_total(each_session, data)
         #if command_count != number_of_commands[0]:
-        if number_of_commands.count(command_count) < 5:
+        if command_count in abnormal_command_counts:
             abnormal_attacks.add(each_session)
             uncommon_command_counts.add(each_session)
 
@@ -1116,7 +1131,7 @@ elif (session_id):
     for each_session in sessions:
         command_count = get_command_total(each_session, data)
         #if command_count != number_of_commands[0]:
-        if number_of_commands.count(command_count) < 5:
+        if command_count in abnormal_command_counts:
             abnormal_attacks.add(each_session)
             uncommon_command_counts.add(each_session)
 
@@ -1124,7 +1139,7 @@ elif (tty_file):
     for each_session in session_id:
         command_count = get_command_total(each_session, data)
         #if command_count != number_of_commands[0]:
-        if number_of_commands.count(command_count) < 5:
+        if command_count in abnormal_command_counts:
             abnormal_attacks.add(each_session)
             uncommon_command_counts.add(each_session)
 
@@ -1133,7 +1148,7 @@ elif (download_file):
     for each_session in session_id:
         command_count = get_command_total(each_session, data)
         #if command_count != number_of_commands[0]:
-        if number_of_commands.count(command_count) < 5:
+        if command_count in abnormal_command_counts:
             abnormal_attacks.add(each_session)
             uncommon_command_counts.add(each_session)
 
@@ -1149,8 +1164,8 @@ summarystring += "{:>40s}  {:10s}".format("Most Common Number of Commands:", str
 summarystring += "\n"
 summarystring += "{:>40s}  {:10s}".format("Number of Commands", "Times Seen") + "\n"
 summarystring += "{:>40s}  {:10s}".format("------------------", "----------") + "\n"
-for command in commands:
-    summarystring += "{:>40s}  {:10s}".format(str(command), str(number_of_commands.count(command))) + "\n"
+for key, value in command_number_dict:
+    summarystring += "{:>40s}  {:10s}".format(str(key), str(value)) + "\n"
 summarystring += "\n"
 summarystring += "{:>48s}".format("VT Classifications") + "\n"
 summarystring += "{:>48s}".format("------------------") + "\n"
