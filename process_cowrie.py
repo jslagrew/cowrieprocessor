@@ -1107,7 +1107,7 @@ command_number_dict = sorted(command_number_dict.items(), key=lambda x:x[1])
 for key, value in command_number_dict:
     abnormal_command_counts.append(key)
     
-abnormal_command_counts = abnormal_command_counts[:int(len(abnormal_command_counts)*(2/3)):]
+abnormal_command_counts = abnormal_command_counts[0:int(len(abnormal_command_counts)*(2/3))]
 
 vt_counts = collections.Counter(vt_classifications)
 vt_classifications = sorted(vt_classifications, key=lambda x: -vt_counts[x])
