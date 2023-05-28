@@ -680,7 +680,8 @@ def print_session_info(data, sessions, attack_type):
                         con.commit()
                     if vt_threat_classification == "":
                         vt_classifications.append("<blank>") 
-                        abnormal_attacks.add(session)
+                        #commented out due to too many inclusions from hosts.deny data
+                        #abnormal_attacks.add(session)
                     else:
                         vt_classifications.append(vt_threat_classification)
                     attackstring += "{:>30s}  {}".format("VT First Submssion",(datetime.datetime.fromtimestamp(int(vt_first_submission)))) + "\n"
@@ -1106,8 +1107,9 @@ for command in commands:
 command_number_dict = sorted(command_number_dict.items(), key=lambda x:x[1])
 for key, value in command_number_dict:
     abnormal_command_counts.append(key)
-    
+
 abnormal_command_counts = abnormal_command_counts[0:int(len(abnormal_command_counts)*(2/3))]
+
 
 vt_counts = collections.Counter(vt_classifications)
 vt_classifications = sorted(vt_classifications, key=lambda x: -vt_counts[x])
