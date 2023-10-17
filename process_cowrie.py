@@ -348,10 +348,9 @@ def uh_query(ip_address):
             response = uh_session.post(url, data=host)
         except:
             print("Exception hit for URLHaus query")
-            #sleep(10)
+            sleep(5)
             continue
         break
-    json.response = json.loads(response.text)
     file = open("uh_" + ip_address, 'w')
     file.write(response.text)
     file.close()
