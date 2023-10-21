@@ -24,6 +24,8 @@ def vt_filescan(hash):
         files = {'file': (folderpath + hash, file)}
         response = requests.post(url, headers=headers, files=files)
     json_response = json.loads(response.text)
+    if not os.path.exists("vtsubmissions"):
+        os.mkdir("vtsubmissions")
     file = open("vtsubmissions/files_" + hash, 'w')
     file.write(response.text)
     file.close()
