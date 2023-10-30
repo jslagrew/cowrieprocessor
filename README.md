@@ -68,7 +68,13 @@ python3 process_cowrie.py --email <my email address> --vtapi <vt api key> --down
 _Will output attacks seen with the file hash given._
 
 ```
-python3 process_cowrie.py --email <my email address> --vtapi <vt api key> --dbxkey <dropbox api key> --dbxsecret <dropbox secret> --dbxrefreshtoken <dropbox refresh token> --summarizedays 2
+python3 process_cowrie.py --email <my email address> --vtapi <vt api key> --dbxapi <dropbox api key> --summarizedays 2
 ```
   
-_Will process the last two days of cowrie data, enrich with URLHaus and VirusTotal data and upload to Dropbox._
+_Will process the last two days of cowrie data, enrich with URLHaus and VirusTotal data and upload to Dropbox using the Access Token (short-term API for testing)._
+
+```
+python3 process_cowrie.py --email <my email address> --vtapi <vt api key> --dbxkey <dropbox access token> --dbxsecret <dropbox secret> --dbxrefreshtoken <dropbox refresh token> --summarizedays 2
+```
+  
+_Will process the last two days of cowrie data, enrich with URLHaus and VirusTotal data and upload to Dropbox using OAuth workflow and Refresh Token for full automation._
