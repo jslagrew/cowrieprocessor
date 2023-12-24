@@ -346,9 +346,10 @@ def uh_query(ip_address):
     while True:
         try:
             response = uh_session.post(url, data=host)
-        except:
+        except Exception as e:
+            print(e)
             print("Exception hit for URLHaus query")
-            sleep(5)
+            time.sleep(10)
             continue
         break
     file = open("uh_" + ip_address, 'w')
@@ -416,7 +417,7 @@ def spur_query(ip_address):
             response = spur_session.get(url)
         except:
             print("Exception hit for SPUR query")
-            #sleep(10)
+            time.sleep(10)
             continue
         break
     json.response = json.loads(response.text)
