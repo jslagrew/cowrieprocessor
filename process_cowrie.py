@@ -13,6 +13,12 @@ from pathlib import Path
 import collections
 import dropbox
 import sqlite3
+import logging
+
+logging_fhandler = logging.FileHandler("cowieprocessor.err")
+logging.root.addHandler(logging_fhandler)
+basic_with_time_format = '%(asctime)s:%(levelname)s:%(name)s:%(message)s'
+logging_fhandler.setFormatter(logging.Formatter(basic_with_time_format))
 
 date = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
 
