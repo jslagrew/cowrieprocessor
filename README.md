@@ -3,6 +3,16 @@ The initial purpose of this application is helps simplify command input and file
 
 ![Snag_1690ca6](https://user-images.githubusercontent.com/82918323/169907140-5a53eb8d-26ae-4fa5-82a2-2bf7782311fa.png)
 
+**Prerequisites**
+
+The script requires the Dropbox python module to be installed, even if not being used. To install the necessary module(s):
+
+```
+pip3 install dropbox
+```
+
+**Using the script - arguments**
+
 By default, the script will look for any Cowrie JSON logs in the /srv/cowrie/var/log/cowrie path (current default for DShield honeypot if setting is enabled to locally store these files). At least one argument to search for relevant data is needed and all other arguments are optional, but may allow for additional data enrichment. 
 
 - Required Search Term (one required)
