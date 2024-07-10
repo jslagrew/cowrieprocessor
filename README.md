@@ -9,6 +9,7 @@ The script requires the Dropbox python module to be installed, even if not being
 
 ```
 pip3 install dropbox
+pip3 install sqlite3
 ```
 
 **Using the script - arguments**
