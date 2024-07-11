@@ -14,11 +14,21 @@ import collections
 import dropbox
 import sqlite3
 import logging
+import sys
 
 logging_fhandler = logging.FileHandler("cowrieprocessor.err")
 logging.root.addHandler(logging_fhandler)
-basic_with_time_format = '%(asctime)s:%(levelname)s:%(name)s:%(message)s'
+basic_with_time_format = '%(asctime)s:%(levelname)s:%(name)s:%(filename)s:%(funcName)s:%(message)s'
 logging_fhandler.setFormatter(logging.Formatter(basic_with_time_format))
+logging_fhandler.setLevel(logging.ERROR)
+
+stdout_handler = logging.StreamHandler(stream = sys.stdout)
+stdout_handler.setFormatter(logging.Formatter(basic_with_time_format))
+stdout_handler.setLevel(logging.DEBUG)
+
+logging.root.addHandler(logging_fhandler)
+logging.root.addHandler(stdout_handler)
+logging.root.setLevel(logging.DEBUG)
 
 date = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
 
@@ -77,6 +87,7 @@ for each_file in file_list:
 con = sqlite3.connect('../cowrieprocessor.sqlite')
 
 def initialize_database():
+    logging.info("Database initializing...")
     cur = con.cursor()
     cur.execute('''
             CREATE TABLE IF NOT EXISTS sessions(session text,
@@ -205,16 +216,16 @@ def initialize_database():
         cur.execute('''ALTER TABLE files ADD spur_client_proxies text''')
         con.commit()        
     except:
-        print("Failure adding table columns, likely because they already exist...")
-
+        logging.error("Failure adding table columns, likely because they already exist...")
     try:
         #add new columns for spur data in preexisting databases
         cur.execute('''ALTER TABLE sessions ADD session_duration int''')
         con.commit()        
     except:
-        print("Failure adding table columns, likely because they already exist...")        
+        logging.error("Failure adding table columns, likely because they already exist...")        
 
 def get_connected_sessions(data):
+    logging.info("Extracting unique sessions...")
     sessions = set()
     for each_entry in data:
         if each_entry['eventid'] == "cowrie.login.success": 
@@ -222,6 +233,7 @@ def get_connected_sessions(data):
     return sessions
 
 def get_session_id(data, type, match):
+    logging.info("Extracting unique sessions")
     sessions = set()
     if (type == "tty"):
         for each_entry in data:
@@ -244,6 +256,7 @@ def get_session_id(data, type, match):
     return sessions
 
 def get_session_duration(session, data):
+    logging.info("Getting session durations...")
     duration = ""
     for each_entry in data:
         if each_entry['session'] == session:
@@ -253,6 +266,7 @@ def get_session_duration(session, data):
     return duration
 
 def get_protocol_login(session, data):
+    logging.info("Getting protocol from session connection...")
     for each_entry in data:
         if each_entry['session'] == session:
             if each_entry['eventid'] == "cowrie.session.connect":
@@ -949,10 +963,16 @@ def print_session_info(data, sessions, attack_type):
         else:
             sql = '''INSERT INTO sessions( session, session_duration, protocol, username, password, timestamp, source_ip,
                 urlhaus_tag, asname, ascountry, total_commands, added) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'''
-        
-            cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip),
-                json_data['ip']['asname'], json_data['ip']['ascountry'], command_count, time.time()))
-            con.commit()
+            
+            if 'json_data' in locals():
+                cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip),
+                    json_data['ip']['asname'], json_data['ip']['ascountry'], command_count, time.time()))
+                con.commit()
+            else:
+                cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip),
+                    "", "", command_count, time.time()))
+                con.commit()
+
 
             if(spurapi):
                 sql = '''UPDATE sessions SET 
