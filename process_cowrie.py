@@ -65,7 +65,7 @@ spurapi = args.spurapi
 #string prepended to filename for report summaries
 #may want a '_' at the start of this string for readability
 hostname = socket.gethostname()
-filename_prepend = f"_{hostname"}
+filename_prepend = f"_{hostname}"
 
 os.mkdir(date)
 os.chdir(date)
