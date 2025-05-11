@@ -7,16 +7,8 @@ The initial purpose of this application is helps simplify command input and file
 
 The script requires the Dropbox python module to be installed, even if not being used. To install the necessary module(s):
 
-**Raspbian (Raspberry Pi)**
-
 ```
 sudo apt-get install python3-dropbox
-```
-
-**Other Debian Variants**
-```
-pip3 install dropbox
-pip3 install sqlite3
 ```
 
 **Using the script - arguments**
