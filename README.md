@@ -1,3 +1,104 @@
+# Cowrie Processor
+
+A Python script for processing and analyzing Cowrie honeypot logs, with integration to various security services.
+
+## Features
+
+- Process Cowrie JSON log files (including bzip2 compressed files)
+- VirusTotal integration for file analysis
+- DShield IP lookup
+- URLhaus integration
+- SPUR.us data enrichment
+- Dropbox upload capability
+- SQLite database storage
+- Session analysis
+- Command tracking
+- File download/upload tracking
+- Abnormal attack detection
+- Report generation
+
+## Requirements
+
+- Python 3.8 or higher
+- Virtual environment (recommended)
+
+## Installation
+
+1. Clone the repository:
+```bash
+git clone git@github.com:datagen24/cowrieprocessor.git
+cd cowrieprocessor
+```
+
+2. Create and activate a virtual environment:
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On Linux/Mac
+# or
+.\venv\Scripts\activate  # On Windows
+```
+
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+## Usage
+
+Basic usage:
+```bash
+python process_cowrie.py --logpath /path/to/cowrie/logs --email your.email@example.com
+```
+
+### Command Line Arguments
+
+- `--logpath`: Path of cowrie json log files (default: '/srv/cowrie/var/log/cowrie')
+- `--ttyfile`: Name of TTY associated TTY log file
+- `--downloadfile`: Name of downloaded file (matches file SHA-256 hash)
+- `--session`: Cowrie session number
+- `--vtapi`: VirusTotal API key (required for VT data lookup)
+- `--email`: Your email address (required for DShield IP lookup)
+- `--summarizedays`: Will summarize all attacks in the given number of days
+- `--dbxapi`: Dropbox access token for use with Dropbox upload of summary text files
+- `--dbxkey`: Dropbox app key to be used to get new short-lived API access key
+- `--dbxsecret`: Dropbox app secret to be used to get new short-lived API access key
+- `--dbxrefreshtoken`: Dropbox refresh token to be used to get new short-lived API access key
+- `--spurapi`: SPUR.us API key to be used for SPUR.us data enrichment
+- `--localpath`: Local path for saving reports (default: '/mnt/dshield/reports')
+- `--datapath`: Local path for database and working files (default: '/mnt/dshield/data')
+
+### Example
+
+Process logs for the last 90 days with all integrations:
+```bash
+python process_cowrie.py \
+    --logpath /mnt/dshield/aws-eastus-dshield/NSM/cowrie \
+    --email your.email@example.com \
+    --summarizedays 90 \
+    --vtapi your_vt_api_key \
+    --spurapi your_spur_api_key \
+    --dbxapi your_dropbox_api_key
+```
+
+## Directory Structure
+
+The script uses the following directory structure:
+- `/mnt/dshield/data/db/` - SQLite database storage
+- `/mnt/dshield/data/temp/` - Temporary processing files
+- `/mnt/dshield/reports/` - Final report storage
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
 # cowrieprocessor
 The initial purpose of this application is helps simplify command input and file download data from DShield Honeypots (https://github.com/DShield-ISC/dshield). This Python applications is designed to process and summarize Cowrie logs (https://github.com/cowrie/cowrie). 
 
