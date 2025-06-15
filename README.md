@@ -97,7 +97,9 @@ The script uses the following directory structure:
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the BSD 4-Clause License - see the LICENSE file for details.
+
+This is a fork of the original project by Jessie Lagrew (https://github.com/jslagrew/cowrieprocessor). The original author's work is not covered by this license. This license only applies to modifications made by Steven Peterson.
 
 # cowrieprocessor
 The initial purpose of this application is helps simplify command input and file download data from DShield Honeypots (https://github.com/DShield-ISC/dshield). This Python applications is designed to process and summarize Cowrie logs (https://github.com/cowrie/cowrie). 
