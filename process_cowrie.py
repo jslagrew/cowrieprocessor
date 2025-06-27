@@ -1089,8 +1089,12 @@ for each_file in list_of_files:
     with open(file_path, 'r') as file:
         print("Processing file " + file_path)
         for each_line in file:
-            json_file = json.loads(each_line.replace('\0', ''))
-            data.append(json_file)
+            try:
+                json_file = json.loads(each_line.replace('\0', ''))
+                data.append(json_file)
+            except Exception as e:
+                logging.error(f"Error parsing data: {e}")
+                logging.error(f"Data with error: '{each_line}'")
         file.close()
 
 vt_session = requests.session()
