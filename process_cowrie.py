@@ -619,7 +619,8 @@ def print_session_info(data, sessions, attack_type):
         attackstring += "{:>30s}  {:50s}".format("Password",str(password)) + "\n"
         attackstring += "{:>30s}  {:50s}".format("Timestamp",str(timestamp)) + "\n"
         attackstring += "{:>30s}  {:50s}".format("Source IP Address",str(src_ip)) + "\n"
-        attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",str(read_uh_data(src_ip, urlhausapi))) + "\n"
+        if urlhausapi is not None:
+            attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",str(read_uh_data(src_ip, urlhausapi))) + "\n"
 
         if(email):
             json_data = dshield_query(src_ip)
@@ -718,14 +719,16 @@ def print_session_info(data, sessions, attack_type):
                 if (each_download[2] != "" and email):
                     if (re.search('[a-zA-Z]', each_download[2])):
                         attackstring += "{:>30s}  {:50s}".format("Download Source Address",each_download[2]) + "\n"
-                        attackstring += "{:>30s}  {:50s}".format("URLhaus Source Tags",read_uh_data(each_download[2], urlhausapi)) + "\n"
-                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=? WHERE session=? and hash=?'''
-                        cur.execute(sql, (each_download[2], read_uh_data(each_download[2], urlhausapi), session, each_download[1]))
-                        con.commit()
+                        if urlhausapi is not None:
+                            attackstring += "{:>30s}  {:50s}".format("URLhaus Source Tags",read_uh_data(each_download[2], urlhausapi)) + "\n"
+                            sql = '''UPDATE files SET src_ip=?, urlhaus_tag=? WHERE session=? and hash=?'''
+                            cur.execute(sql, (each_download[2], read_uh_data(each_download[2], urlhausapi), session, each_download[1]))
+                            con.commit()
                     else:
                         json_data = dshield_query(each_download[2])
                         attackstring += "{:>30s}  {:50s}".format("Download Source Address",each_download[2]) + "\n"
-                        attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_download[2], urlhausapi)) + "\n"
+                        if urlhausapi is not None:
+                            attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_download[2], urlhausapi)) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASNAME",(json_data['ip']['asname'])) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY",(json_data['ip']['ascountry'])) + "\n"
 
@@ -788,26 +791,48 @@ def print_session_info(data, sessions, attack_type):
                                 spur_tunnel_operator=?,
                                 spur_tunnel_type=?                             
                                 WHERE session=? and hash=?'''
-                            cur.execute(sql, (each_download[2], read_uh_data(each_download[2], urlhausapi), json_data['ip']['asname'], json_data['ip']['ascountry'],
-                                            str(spur_data[0]),
-                                            str(spur_data[1]),
-                                            str(spur_data[2]),
-                                            str(spur_data[3]),
-                                            str(spur_data[4]),
-                                            str(spur_data[5]),
-                                            str(spur_data[6]),
-                                            str(spur_data[7]),
-                                            str(spur_data[8]),
-                                            str(spur_data[9]),
-                                            str(spur_data[10]),
-                                            str(spur_data[11]),
-                                            str(spur_data[12]),
-                                            str(spur_data[13]),
-                                            str(spur_data[14]),
-                                            str(spur_data[15]),
-                                            str(spur_data[16]),
-                                            str(spur_data[17]),
-                                            session, each_download[1]))
+                            if urlhausapi is not None:
+                                cur.execute(sql, (each_download[2], read_uh_data(each_download[2], urlhausapi), json_data['ip']['asname'], json_data['ip']['ascountry'],
+                                                str(spur_data[0]),
+                                                str(spur_data[1]),
+                                                str(spur_data[2]),
+                                                str(spur_data[3]),
+                                                str(spur_data[4]),
+                                                str(spur_data[5]),
+                                                str(spur_data[6]),
+                                                str(spur_data[7]),
+                                                str(spur_data[8]),
+                                                str(spur_data[9]),
+                                                str(spur_data[10]),
+                                                str(spur_data[11]),
+                                                str(spur_data[12]),
+                                                str(spur_data[13]),
+                                                str(spur_data[14]),
+                                                str(spur_data[15]),
+                                                str(spur_data[16]),
+                                                str(spur_data[17]),
+                                                session, each_download[1]))
+                            else:
+                                cur.execute(sql, (each_download[2], "", json_data['ip']['asname'], json_data['ip']['ascountry'],
+                                                str(spur_data[0]),
+                                                str(spur_data[1]),
+                                                str(spur_data[2]),
+                                                str(spur_data[3]),
+                                                str(spur_data[4]),
+                                                str(spur_data[5]),
+                                                str(spur_data[6]),
+                                                str(spur_data[7]),
+                                                str(spur_data[8]),
+                                                str(spur_data[9]),
+                                                str(spur_data[10]),
+                                                str(spur_data[11]),
+                                                str(spur_data[12]),
+                                                str(spur_data[13]),
+                                                str(spur_data[14]),
+                                                str(spur_data[15]),
+                                                str(spur_data[16]),
+                                                str(spur_data[17]),
+                                                session, each_download[1]))                                
                             con.commit()
 
 
@@ -855,16 +880,17 @@ def print_session_info(data, sessions, attack_type):
                 if (each_upload[2] != "" and email):
                     if (re.search('[a-zA-Z]', each_upload[2])):
                         attackstring += "{:>30s}  {:50s}".format("Upload Source Address",each_upload[2]) + "\n"
-                        attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_upload[2], urlhausapi)) + "\n"
-
-                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=? WHERE session=? and hash=?'''
-                        cur.execute(sql, (each_upload[2], read_uh_data(each_upload[2], urlhausapi), session, each_upload[1]))
-                        con.commit()
+                        if urlhausapi is not None:
+                            attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_upload[2], urlhausapi)) + "\n"
+                            sql = '''UPDATE files SET src_ip=?, urlhaus_tag=? WHERE session=? and hash=?'''
+                            cur.execute(sql, (each_upload[2], read_uh_data(each_upload[2], urlhausapi), session, each_upload[1]))
+                            con.commit()
 
                     else:
                         json_data = dshield_query(each_upload[2])
                         attackstring += "{:>30s}  {:50s}".format("Upload Source Address",each_upload[2]) + "\n"
-                        attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_upload[2], urlhausapi)) + "\n"
+                        if urlhausapi is not None:
+                            attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_upload[2], urlhausapi)) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASNAME",(json_data['ip']['asname'])) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY",(json_data['ip']['ascountry'])) + "\n"
 
@@ -928,26 +954,48 @@ def print_session_info(data, sessions, attack_type):
                                 spur_tunnel_operator=?,
                                 spur_tunnel_type=?                             
                                 WHERE session=? and hash=?'''
-                            cur.execute(sql, (each_upload[2], read_uh_data(each_upload[2], urlhausapi), json_data['ip']['asname'], json_data['ip']['ascountry'],
-                                            str(spur_data[0]),
-                                            str(spur_data[1]),
-                                            str(spur_data[2]),
-                                            str(spur_data[3]),
-                                            str(spur_data[4]),
-                                            str(spur_data[5]),
-                                            str(spur_data[6]),
-                                            str(spur_data[7]),
-                                            str(spur_data[8]),
-                                            str(spur_data[9]),
-                                            str(spur_data[10]),
-                                            str(spur_data[11]),
-                                            str(spur_data[12]),
-                                            str(spur_data[13]),
-                                            str(spur_data[14]),
-                                            str(spur_data[15]),
-                                            str(spur_data[16]),
-                                            str(spur_data[17]),
-                                            session, each_upload[1]))
+                            if urlhausapi is not None:
+                                cur.execute(sql, (each_upload[2], read_uh_data(each_upload[2], urlhausapi), json_data['ip']['asname'], json_data['ip']['ascountry'],
+                                                str(spur_data[0]),
+                                                str(spur_data[1]),
+                                                str(spur_data[2]),
+                                                str(spur_data[3]),
+                                                str(spur_data[4]),
+                                                str(spur_data[5]),
+                                                str(spur_data[6]),
+                                                str(spur_data[7]),
+                                                str(spur_data[8]),
+                                                str(spur_data[9]),
+                                                str(spur_data[10]),
+                                                str(spur_data[11]),
+                                                str(spur_data[12]),
+                                                str(spur_data[13]),
+                                                str(spur_data[14]),
+                                                str(spur_data[15]),
+                                                str(spur_data[16]),
+                                                str(spur_data[17]),
+                                                session, each_upload[1]))
+                            else:
+                                cur.execute(sql, (each_upload[2], "", json_data['ip']['asname'], json_data['ip']['ascountry'],
+                                                str(spur_data[0]),
+                                                str(spur_data[1]),
+                                                str(spur_data[2]),
+                                                str(spur_data[3]),
+                                                str(spur_data[4]),
+                                                str(spur_data[5]),
+                                                str(spur_data[6]),
+                                                str(spur_data[7]),
+                                                str(spur_data[8]),
+                                                str(spur_data[9]),
+                                                str(spur_data[10]),
+                                                str(spur_data[11]),
+                                                str(spur_data[12]),
+                                                str(spur_data[13]),
+                                                str(spur_data[14]),
+                                                str(spur_data[15]),
+                                                str(spur_data[16]),
+                                                str(spur_data[17]),
+                                                session, each_upload[1]))                                
                             con.commit()
 
 
@@ -970,12 +1018,20 @@ def print_session_info(data, sessions, attack_type):
                 urlhaus_tag, asname, ascountry, total_commands, added) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'''
             
             if 'json_data' in locals():
-                cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip, urlhausapi),
-                    json_data['ip']['asname'], json_data['ip']['ascountry'], command_count, time.time()))
+                if urlhausapi is not None:
+                    cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip, urlhausapi),
+                        json_data['ip']['asname'], json_data['ip']['ascountry'], command_count, time.time()))
+                else:
+                    cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, "",
+                        json_data['ip']['asname'], json_data['ip']['ascountry'], command_count, time.time()))                    
                 con.commit()
             else:
-                cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip, urlhausapi),
-                    "", "", command_count, time.time()))
+                if urlhausapi is not None:
+                    cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, "",
+                        "", "", command_count, time.time()))
+                else:
+                    cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip, urlhausapi),
+                        "", "", command_count, time.time()))                    
                 con.commit()
 
 
