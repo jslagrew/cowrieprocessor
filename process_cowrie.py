@@ -1027,10 +1027,10 @@ def print_session_info(data, sessions, attack_type):
                 con.commit()
             else:
                 if urlhausapi is not None:
-                    cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, "",
+                    cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip, urlhausapi),
                         "", "", command_count, time.time()))
                 else:
-                    cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip, urlhausapi),
+                    cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, "",
                         "", "", command_count, time.time()))                    
                 con.commit()
 
