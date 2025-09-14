@@ -1889,14 +1889,26 @@ for filename in list_of_files:
     file_path_obj = Path(log_location) / filename
     filepath_str = os.fspath(file_path_obj)
     print("Processing file " + filepath_str)
-    with open_json_lines(filepath_str) as file:
-        for each_line in file:
-            try:
-                json_file = json.loads(each_line.replace('\0', ''))
-                data.append(json_file)
-            except Exception:
-                # Skip malformed lines
-                continue
+    try:
+        with open_json_lines(filepath_str) as file:
+            for each_line in file:
+                try:
+                    json_file = json.loads(each_line.replace('\0', ''))
+                    data.append(json_file)
+                except Exception:
+                    # Skip malformed JSON lines
+                    continue
+    except EOFError:
+        logging.warning(
+            f"Compressed file appears truncated; skipping: {filepath_str}"
+        )
+        continue
+    except Exception as e:
+        logging.error(
+            f"Error reading file {filepath_str}; skipping due to: {e}",
+            exc_info=True,
+        )
+        continue
 
 vt_session = requests.session()
 dshield_session = requests.session()
