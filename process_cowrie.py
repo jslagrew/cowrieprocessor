@@ -97,6 +97,44 @@ parser.add_argument(
     '--urlhausapi', dest='urlhausapi', type=str,
     help='URLhaus API key for URLhaus data enrichment',
 )
+parser.add_argument(
+    '--sensor', dest='sensor', type=str,
+    help='Sensor name/hostname to tag data with (defaults to system hostname)'
+)
+parser.add_argument(
+    '--db', dest='db', type=str,
+    help='Path to central SQLite database',
+    default='../cowrieprocessor.sqlite',
+)
+parser.add_argument('--api-timeout', dest='api_timeout', type=int, default=15,
+    help='HTTP timeout in seconds for external APIs (default: 15)')
+parser.add_argument('--api-retries', dest='api_retries', type=int, default=3,
+    help='Max retries for transient API failures (default: 3)')
+parser.add_argument('--api-backoff', dest='api_backoff', type=float, default=2.0,
+    help='Exponential backoff base in seconds (default: 2.0)')
+parser.add_argument('--hash-ttl-days', dest='hash_ttl_days', type=int, default=30,
+    help='TTL in days for file hash lookups (default: 30)')
+parser.add_argument('--hash-unknown-ttl-hours', dest='hash_unknown_ttl_hours', type=int, default=12,
+    help='TTL in hours to recheck VT for unknown hashes sooner (default: 12)')
+parser.add_argument('--ip-ttl-hours', dest='ip_ttl_hours', type=int, default=12,
+    help='TTL in hours for IP lookups (default: 12)')
+parser.add_argument('--rate-vt', dest='rate_vt', type=int, default=4,
+    help='Max VirusTotal requests per minute (default: 4)')
+parser.add_argument('--rate-dshield', dest='rate_dshield', type=int, default=30,
+    help='Max DShield requests per minute (default: 30)')
+parser.add_argument('--rate-urlhaus', dest='rate_urlhaus', type=int, default=30,
+    help='Max URLhaus requests per minute (default: 30)')
+parser.add_argument('--rate-spur', dest='rate_spur', type=int, default=30,
+    help='Max SPUR requests per minute (default: 30)')
+parser.add_argument(
+    '--sensor', dest='sensor', type=str,
+    help='Sensor name/hostname to tag data with (defaults to system hostname)'
+)
+parser.add_argument(
+    '--db', dest='db', type=str,
+    help='Path to central SQLite database',
+    default='../cowrieprocessor.sqlite',
+)
 
 args = parser.parse_args()
 
@@ -113,10 +151,53 @@ dbxsecret = args.dbxsecret
 dbxrefreshtoken = args.dbxrefreshtoken
 spurapi = args.spurapi
 urlhausapi = args.urlhausapi
+api_timeout = args.api_timeout if hasattr(args, 'api_timeout') else 15
+api_retries = args.api_retries if hasattr(args, 'api_retries') else 3
+api_backoff = args.api_backoff if hasattr(args, 'api_backoff') else 2.0
+hash_ttl_seconds = (args.hash_ttl_days if hasattr(args, 'hash_ttl_days') else 30) * 24 * 3600
+hash_unknown_ttl_seconds = (args.hash_unknown_ttl_hours if hasattr(args, 'hash_unknown_ttl_hours') else 12) * 3600
+ip_ttl_seconds = (args.ip_ttl_hours if hasattr(args, 'ip_ttl_hours') else 24) * 3600
+rate_limits = {
+    'vt': getattr(args, 'rate_vt', 4),
+    'dshield': getattr(args, 'rate_dshield', 60),
+    'urlhaus': getattr(args, 'rate_urlhaus', 30),
+    'spur': getattr(args, 'rate_spur', 60),
+}
+
+last_request_time = {k: 0.0 for k in rate_limits.keys()}
+
+def rate_limit(service):
+    """Simple per-service rate limiter based on requests per minute."""
+    now = time.time()
+    per_min = rate_limits.get(service, 60)
+    if per_min <= 0:
+        return
+    min_interval = 60.0 / float(per_min)
+    elapsed = now - last_request_time.get(service, 0.0)
+    if elapsed < min_interval:
+        time.sleep(min_interval - elapsed)
+    last_request_time[service] = time.time()
+
+def cache_get(service, key):
+    """Fetch (last_fetched, data) for a service/key from indicator_cache."""
+    cur = con.cursor()
+    cur.execute('SELECT last_fetched, data FROM indicator_cache WHERE service=? AND key=?', (service, key))
+    row = cur.fetchone()
+    return row if row else None
+
+def cache_upsert(service, key, data):
+    """Upsert indicator_cache row for service/key with current timestamp and data."""
+    cur = con.cursor()
+    cur.execute(
+        'INSERT INTO indicator_cache(service, key, last_fetched, data) VALUES (?,?,?,?) '
+        'ON CONFLICT(service, key) DO UPDATE SET last_fetched=excluded.last_fetched, data=excluded.data',
+        (service, key, int(time.time()), data),
+    )
+    con.commit()
 
 #string prepended to filename for report summaries
 #may want a '_' at the start of this string for readability
-hostname = socket.gethostname()
+hostname = args.sensor if args.sensor else socket.gethostname()
 filename_prepend = f"_{hostname}"
 
 os.mkdir(date)
@@ -139,7 +220,13 @@ for each_file in path_entries:
     if ".json" in each_file.name:
         list_of_files.append(each_file.name)
 
-con = sqlite3.connect('../cowrieprocessor.sqlite')
+con = sqlite3.connect(args.db)
+# Improve concurrency for central DB usage
+try:
+    con.execute('PRAGMA journal_mode=WAL')
+    con.execute('PRAGMA busy_timeout=5000')
+except Exception:
+    pass
 
 def initialize_database():
     """Create and evolve the local SQLite schema if needed.
@@ -182,12 +269,14 @@ def initialize_database():
                 spur_tunnel_operator text,
                 spur_tunnel_type text,
                 total_commands int,
-                added int)''')
+                added int,
+                hostname text)''')
     cur.execute('''
             CREATE TABLE IF NOT EXISTS commands(session text,
                 command text,
                 timestamp int,
-                added int)''')
+                added int,
+                hostname text)''')
     cur.execute('''
             CREATE TABLE IF NOT EXISTS files(session text,
                 download_url text,
@@ -220,8 +309,18 @@ def initialize_database():
                 spur_tunnel_operator text,
                 spur_tunnel_type text,
                 transfer_method text,
-                added int)''')
+                added int,
+                hostname text)''')
     con.commit()
+
+    try:
+        # add hostname columns for multi-sensor central DB
+        cur.execute('''ALTER TABLE sessions ADD hostname text''')
+        cur.execute('''ALTER TABLE commands ADD hostname text''')
+        cur.execute('''ALTER TABLE files ADD hostname text''')
+        con.commit()
+    except Exception:
+        logging.info("Hostname columns likely already exist...")
 
     try:
         #add new columns for spur data in preexisting databases
@@ -286,6 +385,18 @@ def initialize_database():
         con.commit()        
     except Exception:
         logging.error("Failure adding table columns, likely because they already exist...")        
+    try:
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS indicator_cache(
+                service text,
+                key text,
+                last_fetched int,
+                data text,
+                PRIMARY KEY (service, key)
+            )''')
+        con.commit()
+    except Exception:
+        logging.error("Failure creating indicator_cache table")
 
 def get_connected_sessions(data):
     """Return unique session IDs that successfully authenticated.
@@ -488,12 +599,50 @@ def vt_query(hash):
     Returns:
         None. Side effects: writes a file named after the hash.
     """
+    # If cached and TTL valid, restore from DB to file if needed
+    cached = cache_get('vt_file', hash)
+    if cached:
+        last_fetched, data = cached
+        ttl = hash_ttl_seconds
+        try:
+            cached_json = json.loads(data)
+            # Treat missing 'data' or explicit error as unknown
+            is_unknown = not isinstance(cached_json, dict) or ('data' not in cached_json) or ('error' in cached_json)
+            if is_unknown:
+                ttl = hash_unknown_ttl_seconds
+        except Exception:
+            ttl = hash_unknown_ttl_seconds
+        if (time.time() - last_fetched) < ttl:
+            if not exists(hash) and data:
+                with open(hash, 'w') as f:
+                    f.write(data)
+            return
     vt_session.headers = {'X-Apikey': vtapi}
     url = "https://www.virustotal.com/api/v3/files/" + hash
-    response = vt_session.get(url)
-    file = open(hash, 'w')
-    file.write(response.text)
-    file.close()
+    attempt = 0
+    while attempt < api_retries:
+        attempt += 1
+        try:
+            rate_limit('vt')
+            response = vt_session.get(url, timeout=api_timeout)
+            if response.status_code == 429:
+                time.sleep(api_backoff * attempt)
+                continue
+            if response.status_code == 404:
+                # Cache not found and recheck sooner
+                placeholder = json.dumps({"error": "not_found"})
+                with open(hash, 'w') as f:
+                    f.write(placeholder)
+                cache_upsert('vt_file', hash, placeholder)
+                return
+            response.raise_for_status()
+            with open(hash, 'w') as f:
+                f.write(response.text)
+            cache_upsert('vt_file', hash, response.text)
+            return
+        except Exception:
+            time.sleep(api_backoff * attempt)
+    logging.error(f"VT query failed for {hash} after retries")
 
 def vt_filescan(hash):
     """Upload a local file to VirusTotal for scanning.
@@ -506,12 +655,24 @@ def vt_filescan(hash):
     """
     headers = {'X-Apikey': vtapi}
     url = "https://www.virustotal.com/api/v3/files"
-    with open('/srv/cowrie/var/lib/cowrie/downloads/' + hash, 'rb') as file:
-        files = {'file': ('/srv/cowrie/var/lib/cowrie/downloads/' + hash, file)}
-        response = requests.post(url, headers=headers, files=files)
-    file = open("files_" + hash, 'w')
-    file.write(response.text)
-    file.close()
+    attempt = 0
+    with open('/srv/cowrie/var/lib/cowrie/downloads/' + hash, 'rb') as fileh:
+        files = {'file': ('/srv/cowrie/var/lib/cowrie/downloads/' + hash, fileh)}
+        while attempt < api_retries:
+            attempt += 1
+            try:
+                rate_limit('vt')
+                response = vt_session.post(url, headers=headers, files=files, timeout=api_timeout)
+                if response.status_code == 429:
+                    time.sleep(api_backoff * attempt)
+                    continue
+                response.raise_for_status()
+                with open("files_" + hash, 'w') as f:
+                    f.write(response.text)
+                return
+            except Exception:
+                time.sleep(api_backoff * attempt)
+    logging.error(f"VT filescan failed for {hash}")
 
 def dshield_query(ip_address):
     """Query DShield for information about an IP address.
@@ -522,13 +683,31 @@ def dshield_query(ip_address):
     Returns:
         Parsed JSON response as a dictionary.
     """
-    headers = {"User-Agent": "DShield Research Query by " + email}
-    response = requests.get("https://www.dshield.org/api/ip/" + ip_address + "?json", headers=headers)
-    try:
-        json_data = json.loads(response.text)
-    except Exception:
-        json_data = dshield_query(ip_address)
-    return json_data
+    # Check cache
+    cached = cache_get('dshield_ip', ip_address)
+    if cached and (time.time() - cached[0]) < ip_ttl_seconds:
+        try:
+            return json.loads(cached[1])
+        except Exception:
+            pass
+    headers = {"User-Agent": "DShield Research Query by " + (email or "unknown")}
+    url = "https://www.dshield.org/api/ip/" + ip_address + "?json"
+    attempt = 0
+    while attempt < api_retries:
+        attempt += 1
+        try:
+            rate_limit('dshield')
+            response = dshield_session.get(url, headers=headers, timeout=api_timeout)
+            if response.status_code == 429:
+                time.sleep(api_backoff * attempt)
+                continue
+            response.raise_for_status()
+            cache_upsert('dshield_ip', ip_address, response.text)
+            return json.loads(response.text)
+        except Exception:
+            time.sleep(api_backoff * attempt)
+    logging.error(f"DShield query failed for {ip_address}")
+    return {"ip": {"asname": "", "ascountry": ""}}
 
 def uh_query(ip_address, uh_api):
     """Query URLHaus for information about a host and cache the result.
@@ -543,18 +722,33 @@ def uh_query(ip_address, uh_api):
     uh_header = {'Auth-Key': uh_api}
     host = {'host': ip_address}
     url = "https://urlhaus-api.abuse.ch/v1/host/"
-    while True:
+    # Use cache if fresh
+    cached = cache_get('urlhaus_ip', ip_address)
+    if cached and (time.time() - cached[0]) < ip_ttl_seconds:
+        data = cached[1]
+        if data:
+            with open("uh_" + ip_address, 'w') as f:
+                f.write(data)
+            return
+    attempt = 0
+    while attempt < api_retries:
+        attempt += 1
         try:
-            response = uh_session.post(url, headers=uh_header, data=host)
+            rate_limit('urlhaus')
+            response = uh_session.post(url, headers=uh_header, data=host, timeout=api_timeout)
+            if response.status_code == 429:
+                time.sleep(api_backoff * attempt)
+                continue
+            response.raise_for_status()
+            with open("uh_" + ip_address, 'w') as f:
+                f.write(response.text)
+            cache_upsert('urlhaus_ip', ip_address, response.text)
+            return
         except Exception as e:
             print(e)
             print("Exception hit for URLHaus query")
-            time.sleep(10)
-            continue
-        break
-    file = open("uh_" + ip_address, 'w')
-    file.write(response.text)
-    file.close()
+            time.sleep(api_backoff * attempt)
+    logging.error(f"URLHaus query failed for {ip_address}")
 
 def read_uh_data(ip_address, urlhausapi):
     """Read locally cached URLHaus data and return a tag summary.
@@ -643,18 +837,33 @@ def spur_query(ip_address):
     spur_session.headers = {'Token': spurapi}
     #token = {'Token': api_spur}
     url = "https://api.spur.us/v2/context/" + ip_address
-    while True:
+    # Use cache if fresh
+    cached = cache_get('spur_ip', ip_address)
+    cache_file = "spur" + "_" + ip_address.replace(":", "_") + ".json"
+    if cached and (time.time() - cached[0]) < ip_ttl_seconds:
+        data = cached[1]
+        if data:
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                f.write(data)
+            return
+    attempt = 0
+    while attempt < api_retries:
+        attempt += 1
         try:
-            response = spur_session.get(url)
+            rate_limit('spur')
+            response = spur_session.get(url, timeout=api_timeout)
+            if response.status_code == 429:
+                time.sleep(api_backoff * attempt)
+                continue
+            response.raise_for_status()
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                f.write(response.text)
+            cache_upsert('spur_ip', ip_address, response.text)
+            return
         except Exception:
             print("Exception hit for SPUR query")
-            time.sleep(10)
-            continue
-        break
-    json.response = json.loads(response.text)
-    file = open("spur" + "_" +ip_address.replace(":", "_") + ".json", 'w',encoding="utf-8")
-    file.write(response.text)
-    file.close()
+            time.sleep(api_backoff * attempt)
+    logging.error(f"SPUR query failed for {ip_address}")
 
 def read_spur_data(ip_address):
     """Read cached SPUR.us data and return normalized fields.
@@ -925,16 +1134,16 @@ def print_session_info(data, sessions, attack_type):
                 attackstring += "{:>30s}  {:50s}".format("Download SHA-256 Hash",each_download[1]) + "\n"
                 attackstring += "{:>30s}  {:50s}".format("Destination File",each_download[3]) + "\n"
 
-                sql = '''SELECT * FROM files WHERE session=? and hash=? and file_path=?'''
-                cur.execute(sql, (session, each_download[1], each_download[3]))
+                sql = '''SELECT * FROM files WHERE session=? and hash=? and file_path=? and hostname=?'''
+                cur.execute(sql, (session, each_download[1], each_download[3], hostname))
                 rows = cur.fetchall()
                 download_data_needed = len(rows)
 
                 if(download_data_needed > 0):
                     print("Download data for session " + session + " was already stored within database")
                 else:
-                    sql = '''INSERT INTO files(session, download_url, hash, file_path) VALUES (?,?,?,?)'''
-                    cur.execute(sql, (session, each_download[0], each_download[1], each_download[3]))
+                    sql = '''INSERT INTO files(session, download_url, hash, file_path, hostname) VALUES (?,?,?,?,?)'''
+                    cur.execute(sql, (session, each_download[0], each_download[1], each_download[3], hostname))
                     con.commit()
 
 
@@ -958,9 +1167,9 @@ def print_session_info(data, sessions, attack_type):
                     )
                     if(download_data_needed == 0):
                         sql = '''UPDATE files SET vt_description=?, vt_threat_classification=?, vt_first_submission=?, 
-                            vt_hits=?, transfer_method=?, added=? WHERE session=? and hash=?'''
+                            vt_hits=?, transfer_method=?, added=? WHERE session=? and hash=? and hostname=?'''
                         cur.execute(sql, (vt_description, vt_threat_classification, vt_first_submission, vt_malicious,
-                            "DOWNLOAD", time.time(), session, each_download[1]))
+                            "DOWNLOAD", time.time(), session, each_download[1], hostname))
                         con.commit()
                     if vt_threat_classification == "":
                         vt_classifications.append("<blank>") 
@@ -992,7 +1201,7 @@ def print_session_info(data, sessions, attack_type):
                                 )
                                 + "\n"
                             )
-                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=? WHERE session=? and hash=?'''
+                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=? WHERE session=? and hash=? and hostname=?'''
                         cur.execute(
                             sql,
                             (
@@ -1000,6 +1209,7 @@ def print_session_info(data, sessions, attack_type):
                                 (read_uh_data(each_download[2], urlhausapi) if urlhausapi else ""),
                                 session,
                                 each_download[1],
+                                hostname,
                             ),
                         )
                         con.commit()
@@ -1151,7 +1361,7 @@ def print_session_info(data, sessions, attack_type):
                                 spur_tunnel_entries=?,
                                 spur_tunnel_operator=?,
                                 spur_tunnel_type=?                             
-                                WHERE session=? and hash=?'''
+                                WHERE session=? and hash=? and hostname=?'''
                             cur.execute(
                                 sql,
                                 (
@@ -1179,6 +1389,7 @@ def print_session_info(data, sessions, attack_type):
                                     str(spur_data[17]),
                                     session,
                                     each_download[1],
+                                    hostname,
                                 ),
                             )
                             con.commit()
@@ -1195,16 +1406,16 @@ def print_session_info(data, sessions, attack_type):
                 attackstring += "{:>30s}  {:50s}".format("Upload SHA-256 Hash",each_upload[1]) + "\n"
                 attackstring += "{:>30s}  {:50s}".format("Destination File",each_upload[3]) + "\n"
 
-                sql = '''SELECT * FROM files WHERE session=? and hash=? and file_path=?'''
-                cur.execute(sql, (session, each_upload[1], each_upload[3]))
+                sql = '''SELECT * FROM files WHERE session=? and hash=? and file_path=? and hostname=?'''
+                cur.execute(sql, (session, each_upload[1], each_upload[3], hostname))
                 rows = cur.fetchall()
                 upload_data_needed = len(rows)
 
                 if(upload_data_needed > 0):
                     print("Upload data for session " + session + " was already stored within database")
                 else:
-                    sql = '''INSERT INTO files(session, download_url, hash, file_path) VALUES (?,?,?,?)'''
-                    cur.execute(sql, (session, each_upload[0], each_upload[1], each_upload[3]))
+                    sql = '''INSERT INTO files(session, download_url, hash, file_path, hostname) VALUES (?,?,?,?,?)'''
+                    cur.execute(sql, (session, each_upload[0], each_upload[1], each_upload[3], hostname))
                     con.commit()
 
                 if (not(exists(each_upload[1])) and vtapi):
@@ -1236,9 +1447,9 @@ def print_session_info(data, sessions, attack_type):
 
                     if(upload_data_needed == 0):
                         sql = '''UPDATE files SET vt_description=?, vt_threat_classification=?, vt_first_submission=?,
-                            vt_hits=?, transfer_method=?, added=? WHERE session=? and hash=?'''
+                            vt_hits=?, transfer_method=?, added=? WHERE session=? and hash=? and hostname=?'''
                         cur.execute(sql, (vt_description, vt_threat_classification, vt_first_submission, vt_malicious,
-                            "UPLOAD", time.time(), session, each_upload[1]))
+                            "UPLOAD", time.time(), session, each_upload[1], hostname))
                         con.commit()
 
                 if (each_upload[2] != "" and email):
@@ -1254,7 +1465,7 @@ def print_session_info(data, sessions, attack_type):
                                 + "\n"
                             )
 
-                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=? WHERE session=? and hash=?'''
+                        sql = '''UPDATE files SET src_ip=?, urlhaus_tag=? WHERE session=? and hash=? and hostname=?'''
                         cur.execute(
                             sql,
                             (
@@ -1262,6 +1473,7 @@ def print_session_info(data, sessions, attack_type):
                                 (read_uh_data(each_upload[2], urlhausapi) if urlhausapi else ""),
                                 session,
                                 each_upload[1],
+                                hostname,
                             ),
                         )
                         con.commit()
@@ -1415,7 +1627,7 @@ def print_session_info(data, sessions, attack_type):
                                 spur_tunnel_entries=?,
                                 spur_tunnel_operator=?,
                                 spur_tunnel_type=?                             
-                                WHERE session=? and hash=?'''
+                                WHERE session=? and hash=? and hostname=?'''
                             cur.execute(
                                 sql,
                                 (
@@ -1443,6 +1655,7 @@ def print_session_info(data, sessions, attack_type):
                                     str(spur_data[17]),
                                     session,
                                     each_upload[1],
+                                    hostname,
                                 ),
                             )
                             con.commit()
@@ -1459,8 +1672,8 @@ def print_session_info(data, sessions, attack_type):
 
         utc_time = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%fZ")
         epoch_time = (utc_time - datetime.datetime(1970, 1, 1)).total_seconds()
-        sql = '''SELECT * FROM sessions WHERE session=? and timestamp=?'''
-        cur.execute(sql, (session, epoch_time))
+        sql = '''SELECT * FROM sessions WHERE session=? and timestamp=? and hostname=?'''
+        cur.execute(sql, (session, epoch_time, hostname))
 
         rows = cur.fetchall()
         if (len(rows) > 0):
@@ -1468,8 +1681,8 @@ def print_session_info(data, sessions, attack_type):
         else:
             sql = (
                 "INSERT INTO sessions( session, session_duration, protocol, username, password, "
-                "timestamp, source_ip, urlhaus_tag, asname, ascountry, total_commands, added) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+                "timestamp, source_ip, urlhaus_tag, asname, ascountry, total_commands, added, hostname) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
             )
             
             if 'json_data' in locals():
@@ -1488,6 +1701,7 @@ def print_session_info(data, sessions, attack_type):
                         json_data['ip']['ascountry'],
                         command_count,
                         time.time(),
+                        hostname,
                     ),
                 )
                 con.commit()
@@ -1507,6 +1721,7 @@ def print_session_info(data, sessions, attack_type):
                         "",
                         command_count,
                         time.time(),
+                        hostname,
                     ),
                 )
                 con.commit()
@@ -1532,7 +1747,7 @@ def print_session_info(data, sessions, attack_type):
                     spur_tunnel_entries=?,
                     spur_tunnel_operator=?,
                     spur_tunnel_type=?                             
-                    WHERE session=? and timestamp=?'''
+                    WHERE session=? and timestamp=? and hostname=?'''
                 cur.execute(sql, (str(spur_session_data[0]),
                                     str(spur_session_data[1]),
                                     str(spur_session_data[2]),
@@ -1551,7 +1766,7 @@ def print_session_info(data, sessions, attack_type):
                                     str(spur_session_data[15]),
                                     str(spur_session_data[16]),
                                     str(spur_session_data[17]),
-                                    session, epoch_time))
+                                    session, epoch_time, hostname))
                 con.commit()
 
 
@@ -1597,16 +1812,16 @@ def get_commands(data, session):
                 commands += "# " + each_entry['input'] + "\n"
                 utc_time = datetime.datetime.strptime(each_entry['timestamp'], "%Y-%m-%dT%H:%M:%S.%fZ")
                 epoch_time = (utc_time - datetime.datetime(1970, 1, 1)).total_seconds()
-                sql = '''SELECT * FROM commands WHERE session=? and command=? and timestamp=?'''
-                cur.execute(sql, (session, each_entry['input'], epoch_time))
+                sql = '''SELECT * FROM commands WHERE session=? and command=? and timestamp=? and hostname=?'''
+                cur.execute(sql, (session, each_entry['input'], epoch_time, hostname))
                 rows = cur.fetchall()
                 if (len(rows) > 0):
                     print("Command data for session " + session + " was already stored within database")
                 else:
-                    sql = '''INSERT INTO commands(session, command, timestamp, added) VALUES (?,?,?,?)'''
+                    sql = '''INSERT INTO commands(session, command, timestamp, added, hostname) VALUES (?,?,?,?,?)'''
                     #utc_time = datetime.datetime.strptime(each_entry['timestamp'], "%Y-%m-%dT%H:%M:%S.%fZ")
                     #epoch_time = (utc_time - datetime.datetime(1970, 1, 1)).total_seconds()
-                    cur.execute(sql, (session, each_entry['input'], epoch_time, time.time()))
+                    cur.execute(sql, (session, each_entry['input'], epoch_time, time.time(), hostname))
     con.commit()
     return commands
 

@@ -21,6 +21,9 @@ A Python script for processing and analyzing Cowrie honeypot logs, with integrat
 
 - Python 3.8 or higher
 - Virtual environment (recommended)
+- For Elasticsearch reporting and orchestration:
+  - `elasticsearch>=8,<9`
+  - `tomli` (if Python < 3.11)
 
 ## Installation
 
@@ -67,6 +70,18 @@ python process_cowrie.py --logpath /path/to/cowrie/logs --email your.email@examp
 - `--urlhausapi`: URLhaus API key to be used for URLhaus data enrichment (optional; if omitted, URLhaus lookups are skipped)
 - `--localpath`: Local path for saving reports (default: '/mnt/dshield/reports')
 - `--datapath`: Local path for database and working files (default: '/mnt/dshield/data')
+- `--sensor`: Sensor name/hostname to tag data with; defaults to system hostname
+- `--db`: Path to the central SQLite database (default: '../cowrieprocessor.sqlite')
+- `--api-timeout`: HTTP timeout in seconds for external APIs (default: 15)
+- `--api-retries`: Max retries for transient API failures (default: 3)
+- `--api-backoff`: Exponential backoff base in seconds (default: 2.0)
+- `--hash-ttl-days`: TTL for known file hash lookups (VT) (default: 30)
+- `--hash-unknown-ttl-hours`: TTL to recheck VT for unknown hashes sooner (default: 12)
+- `--ip-ttl-hours`: TTL for IP lookups (DShield/URLhaus/SPUR) (default: 12)
+- `--rate-vt`: Max VirusTotal requests per minute (default: 4)
+- `--rate-dshield`: Max DShield requests per minute (default: 30)
+- `--rate-urlhaus`: Max URLhaus requests per minute (default: 30)
+- `--rate-spur`: Max SPUR requests per minute (default: 30)
 
 ### Example
 
@@ -88,6 +103,120 @@ The script uses the following directory structure:
 - `/mnt/dshield/data/db/` - SQLite database storage
 - `/mnt/dshield/data/temp/` - Temporary processing files
 - `/mnt/dshield/reports/` - Final report storage
+
+## Multi-Sensor Central Database
+
+To aggregate statistics across multiple sensors, you can point all processors to a single central SQLite database and tag events with a sensor name via `--sensor`.
+
+Example:
+```
+# Sensor A
+python process_cowrie.py --sensor honeypot-a --logpath /mnt/dshield/a/NSM/cowrie --db /mnt/dshield/data/db/cowrieprocessor.sqlite --summarizedays 1
+
+# Sensor B
+python process_cowrie.py --sensor honeypot-b --logpath /mnt/dshield/b/NSM/cowrie --db /mnt/dshield/data/db/cowrieprocessor.sqlite --summarizedays 1
+```
+
+Notes:
+- The database schema now includes a `hostname` field on `sessions`, `commands`, and `files` to disambiguate per-sensor data.
+- Runtime change: SQLite now uses WAL and a busy timeout to improve central DB concurrency.
+- If you are migrating existing per-sensor databases, run each sensor once with the new version and `--sensor` against the central DB to backfill going forward. Historical consolidation can be rebuilt from retained raw logs.
+
+## API Request Handling (timeouts, retries, rate limits)
+
+- All external API requests (VirusTotal, DShield, URLhaus, SPUR) use:
+  - Timeouts (`--api-timeout`), retries (`--api-retries`) with exponential backoff (`--api-backoff`).
+  - Simple per-service rate limiting with configurable requests-per-minute flags.
+- The processor maintains an `indicator_cache` table to record last fetch time and cache payloads per service/key:
+  - Services: `vt_file` (hash), `dshield_ip` (ip), `urlhaus_ip` (ip), `spur_ip` (ip)
+  - TTLs governed by `--hash-ttl-days`, `--hash-unknown-ttl-hours`, and `--ip-ttl-hours`.
+  - If cached and fresh, the processor uses the cached response and avoids network calls.
+
+## Elasticsearch Reporting
+
+Use `es_reports.py` to generate reports from the central SQLite database and index them into Elasticsearch.
+
+Environment variables:
+- `ES_HOST`, `ES_USERNAME`, `ES_PASSWORD` or `ES_API_KEY` / `ES_CLOUD_ID`
+- `ES_VERIFY_SSL=false` to disable certificate verification (or pass `--no-ssl-verify`)
+
+Write targets (ILM write aliases):
+- Daily: `cowrie.reports.daily-write`
+- Weekly: `cowrie.reports.weekly-write`
+- Monthly: `cowrie.reports.monthly-write`
+
+Examples:
+```bash
+# Aggregate and per-sensor daily
+python es_reports.py daily --all-sensors --db /mnt/dshield/data/db/cowrieprocessor.sqlite --date 2025-09-14
+
+# Single sensor
+python es_reports.py daily --sensor honeypot-a --db /mnt/dshield/data/db/cowrieprocessor.sqlite --date 2025-09-14
+
+# Backfill range
+python es_reports.py backfill --start 2025-09-01 --end 2025-09-14 --db /mnt/dshield/data/db/cowrieprocessor.sqlite
+
+# Weekly and monthly rollups
+python es_reports.py weekly --week 2025-W37 --db /mnt/dshield/data/db/cowrieprocessor.sqlite
+python es_reports.py monthly --month 2025-09 --db /mnt/dshield/data/db/cowrieprocessor.sqlite
+```
+
+ILM/Template notes:
+- Policies are configured to never delete, only move to cold: daily after 7d, weekly after 30d, monthly after 90d.
+- Ensure initial indices exist with the write aliases as rollover aliases, e.g. `cowrie.reports.daily-000001` with alias `cowrie.reports.daily-write`.
+- The reporter writes to the `*-write` alias; searches can use `cowrie.reports.daily-*`.
+
+## Orchestrating Multiple Sensors (TOML)
+
+Use `orchestrate_sensors.py` with a TOML file to run multiple sensors sequentially.
+
+```toml
+[global]
+db = "/mnt/dshield/data/db/cowrieprocessor.sqlite"
+
+[[sensor]]
+name = "honeypot-a"
+logpath = "/mnt/dshield/a/NSM/cowrie"
+summarizedays = 1
+email = "you@example.com"
+
+[[sensor]]
+name = "honeypot-b"
+logpath = "/mnt/dshield/b/NSM/cowrie"
+summarizedays = 1
+```
+
+Run:
+```bash
+python orchestrate_sensors.py --config sensors.toml --max-retries 3 --pause-seconds 10
+```
+
+Reliability:
+- The orchestrator retries each sensor with exponential backoff to handle transient API timeouts (URLhaus, DShield, VT, SPUR).
+- For large backfills, run processing off-hours and generate ES reports afterwards.
+
+## Refreshing Cache and Recent Reports
+
+Use `refresh_cache_and_reports.py` to refresh the indicator cache and reindex recent daily/weekly/monthly reports within their hot windows.
+
+Examples:
+```bash
+# Refresh indicators and reports using defaults (daily 7d, weekly 30d, monthly 90d)
+python refresh_cache_and_reports.py --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+  --vtapi $VT_API --email you@example.com --urlhausapi $URLHAUS_API --spurapi $SPUR_API
+
+# Only refresh indicators, no reports
+python refresh_cache_and_reports.py --db /mnt/dshield/data/db/cowrieprocessor.sqlite --refresh-reports none \
+  --vtapi $VT_API --email you@example.com --urlhausapi $URLHAUS_API --spurapi $SPUR_API
+
+# Only refresh daily reports for last 7 days
+python refresh_cache_and_reports.py --db /mnt/dshield/data/db/cowrieprocessor.sqlite --refresh-indicators none --refresh-reports daily
+```
+
+Notes:
+- VT unknown hashes are rechecked sooner (default 12 hours) via `--hash-unknown-ttl-hours`.
+- IP lookups default TTL is 12 hours; hashes default 30 days.
+- Rate limits are enforced per service; adjust via flags.
 
 ## Contributing
 

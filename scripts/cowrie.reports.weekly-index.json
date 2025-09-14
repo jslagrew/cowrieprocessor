@@ -1,0 +1,40 @@
+{
+  "index_patterns": ["cowrie.reports.weekly-*"]
+,
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "index": {
+        "lifecycle": {
+          "name": "cowrie.reports.weekly",
+          "rollover_alias": "cowrie.reports.weekly-write"
+        },
+        "refresh_interval": "30s"
+      }
+    },
+    "mappings": {
+      "numeric_detection": true,
+      "_meta": {"beat": "cowrie.reports"},
+      "dynamic_templates": [
+        {"strings_as_keyword": {"match_mapping_type": "string", "mapping": {"ignore_above": 1024, "type": "keyword"}}}
+      ],
+      "properties": {
+        "@timestamp": {"type": "date"},
+        "date_utc": {"type": "date"},
+        "year_week": {"type": "keyword"},
+        "year_month": {"type": "keyword"},
+        "date_range": {"properties": {"start": {"type": "date"}, "end": {"type": "date"}}},
+        "sensor": {"type": "keyword"},
+        "generated_at": {"type": "date"},
+        "report_type": {"type": "keyword"},
+        "days_included": {"type": "integer"},
+        "sessions": {"properties": {"total": {"type": "long"}, "unique_ips": {"type": "long"}, "unique_usernames": {"type": "long"}, "unique_passwords": {"type": "long"}, "daily_average": {"type": "float"}}},
+        "commands": {"properties": {"total": {"type": "long"}, "unique": {"type": "long"}, "daily_average": {"type": "float"}}},
+        "files": {"properties": {"downloads_total": {"type": "long"}, "uploads_total": {"type": "long"}, "unique_hashes": {"type": "long"}}},
+        "alerts_summary": {"type": "nested", "properties": {"type": {"type": "keyword"}, "severity": {"type": "keyword"}, "message": {"type": "text"}}}
+      }
+    }
+  }
+}
+

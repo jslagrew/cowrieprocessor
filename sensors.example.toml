@@ -1,0 +1,17 @@
+[global]
+db = "/mnt/dshield/data/db/cowrieprocessor.sqlite"
+
+[[sensor]]
+name = "honeypot-a"
+logpath = "/mnt/dshield/a/NSM/cowrie"
+summarizedays = 1
+email = "you@example.com"
+# vtapi = "..."
+# urlhausapi = "..."
+# spurapi = "..."
+
+[[sensor]]
+name = "honeypot-b"
+logpath = "/mnt/dshield/b/NSM/cowrie"
+summarizedays = 1
+
