@@ -121,6 +121,10 @@ parser.add_argument('--rate-urlhaus', dest='rate_urlhaus', type=int, default=30,
 parser.add_argument('--rate-spur', dest='rate_spur', type=int, default=30,
     help='Max SPUR requests per minute (default: 30)')
 parser.add_argument(
+    '--output-dir', dest='output_dir', type=str,
+    help='Base directory for reports and caches (default: <logpath>/../reports)'
+)
+parser.add_argument(
     '--sensor', dest='sensor', type=str,
     help='Sensor name/hostname to tag data with (defaults to system hostname)'
 )
@@ -189,13 +193,20 @@ def cache_upsert(service, key, data):
     )
     con.commit()
 
-#string prepended to filename for report summaries
-#may want a '_' at the start of this string for readability
+# string prepended to filename for report summaries
+# may want a '_' at the start of this string for readability
 hostname = args.sensor if args.sensor else socket.gethostname()
 filename_prepend = f"_{hostname}"
 
-os.mkdir(date)
-os.chdir(date)
+# Determine output directory: configurable or derived from log path
+try:
+    default_base = (Path(log_location).parent / 'reports')
+except Exception:
+    default_base = Path.cwd() / 'reports'
+base_output_dir = Path(args.output_dir) if args.output_dir else default_base
+run_dir = base_output_dir / hostname / date
+run_dir.mkdir(parents=True, exist_ok=True)
+os.chdir(run_dir)
 
 data = []
 attack_count = 0
@@ -1956,7 +1967,7 @@ summarystring += "{:>40s}  {:10s}".format("Most Common Number of Commands:", str
 summarystring += "\n"
 summarystring += "{:>40s}  {:10s}".format("Number of Commands", "Times Seen") + "\n"
 summarystring += "{:>40s}  {:10s}".format("------------------", "----------") + "\n"
-for key, value in command_number_dict:
+for key, value in command_number_dict.items():
     summarystring += "{:>40s}  {:10s}".format(str(key), str(value)) + "\n"
 summarystring += "\n"
 summarystring += "{:>48s}".format("VT Classifications") + "\n"
@@ -2019,8 +2030,11 @@ elif (dbxkey and dbxsecret and dbxrefreshtoken):
     with open(date + "_abnormal_" + summarizedays + "-day_report.txt", 'rb') as f:
         dbx.files_upload(f.read(), "/" + date + filename_prepend + "_abnormal_" + summarizedays + "-day_report.txt")
 
-    with open("../cowrieprocessor.sqlite", 'rb') as f:
-        dbx.files_upload(f.read(), "/" + date + filename_prepend + "_cowrieprocessor.sqlite")
+    try:
+        with open(args.db, 'rb') as f:
+            dbx.files_upload(f.read(), "/" + date + filename_prepend + "_cowrieprocessor.sqlite")
+    except Exception:
+        logging.error("Failed to upload DB file to Dropbox", exc_info=True)
 
 else: 
     print("No Dropbox account information supplied to allow upload")

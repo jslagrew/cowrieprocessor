@@ -38,6 +38,11 @@ def build_cmd(processor: Path, db: str, sensor_cfg: dict, overrides: dict) -> li
         if sensor_cfg.get(k):
             cmd += [f"--{k}", str(sensor_cfg[k])]
 
+    # Optional output directory (sensor-level override or global)
+    report_dir = sensor_cfg.get("report_dir") or overrides.get("report_dir")
+    if report_dir:
+        cmd += ["--output-dir", str(report_dir)]
+
     return cmd
 
 
@@ -102,7 +107,9 @@ def main():
         if not sensor_cfg.get("name") or not sensor_cfg.get("logpath"):
             print(f"[orchestrate] Skipping incomplete sensor entry: {sensor_cfg}")
             continue
-        cmd = build_cmd(processor, db, sensor_cfg, {"summarizedays": args.summarizedays})
+        # Per-sensor overrides fall back to global in config
+        overrides = {"summarizedays": args.summarizedays, "report_dir": global_cfg.get("report_dir")}
+        cmd = build_cmd(processor, db, sensor_cfg, overrides)
         rc = run_with_retries(cmd, max_retries=args.max_retries)
         if rc != 0:
             failures += 1

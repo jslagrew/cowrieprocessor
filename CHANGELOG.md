@@ -96,11 +96,17 @@ All notable changes to the Cowrie Processor script will be documented in this fi
 - Requirements updated: `elasticsearch>=8,<9` and `tomli` (for Python <3.11).
 - API robustness in `process_cowrie.py`: HTTP timeouts, retries with backoff, and per-service rate limiting; `indicator_cache` table with TTLs for hashes/IPs to reduce API load.
 - Refresh utility `refresh_cache_and_reports.py` to renew indicator cache and reindex recent daily/weekly/monthly reports within hot windows.
+- Configurable report output directory:
+  - New `--output-dir` flag in `process_cowrie.py`.
+  - TOML support for `report_dir` (global or per-sensor) in `orchestrate_sensors.py`.
+  - Default output base derived from `logpath` (`<logpath>/../reports`); final layout `<output-base>/<sensor>/<timestamp>/`.
 
 ### Changed
 - README documentation expanded: central DB usage, ES reporting, write aliases, and orchestration.
 - Deployment guidance references write aliases for ILM consistency.
  - ILM policies updated to never delete; daily hot 7d -> cold, weekly hot 30d -> cold, monthly hot 90d -> cold.
+- Dropbox DB upload now reads from `--db` path reliably.
+- Process compressed logs (`.bz2`, `.gz`) and skip malformed lines to avoid decode crashes.
 
 ### Notes
 - Historical merge is not required; rebuild from retained raw logs is recommended.
@@ -108,3 +114,6 @@ All notable changes to the Cowrie Processor script will be documented in this fi
 
 ### Removed
 - Deprecated `reports_index_template.json` in favor of per-type index templates and write aliases.
+
+### Fixed
+- Summary report loop now iterates with `.items()` to avoid `TypeError` when unpacking dict keys.

@@ -82,6 +82,7 @@ python process_cowrie.py --logpath /path/to/cowrie/logs --email your.email@examp
 - `--rate-dshield`: Max DShield requests per minute (default: 30)
 - `--rate-urlhaus`: Max URLhaus requests per minute (default: 30)
 - `--rate-spur`: Max SPUR requests per minute (default: 30)
+- `--output-dir`: Base directory for reports and caches (default: `<logpath>/../reports`)
 
 ### Example
 
@@ -99,10 +100,18 @@ python process_cowrie.py \
 
 ## Directory Structure
 
-The script uses the following directory structure:
-- `/mnt/dshield/data/db/` - SQLite database storage
-- `/mnt/dshield/data/temp/` - Temporary processing files
-- `/mnt/dshield/reports/` - Final report storage
+The processor writes reports and API cache files to a configurable output base directory:
+
+- Default output base: `<logpath>/../reports`
+- Override with: `--output-dir /desired/path` or `report_dir` in `sensors.toml`
+- Final layout: `<output-base>/<sensor>/<timestamp>/`
+  - Examples:
+    - `/mnt/dshield/reports/honeypot-a/2025-09-14-201530/`
+    - `/custom/reports/aws-eastus-dshield/2025-09-14-201530/`
+
+Database and other data directories remain unchanged unless configured otherwise:
+- `/mnt/dshield/data/db/` - SQLite database storage (e.g., `--db`)
+- `/mnt/dshield/data/temp/` - Temporary processing files (optional use)
 
 ## Multi-Sensor Central Database
 
@@ -173,12 +182,15 @@ Use `orchestrate_sensors.py` with a TOML file to run multiple sensors sequential
 ```toml
 [global]
 db = "/mnt/dshield/data/db/cowrieprocessor.sqlite"
+report_dir = "/mnt/dshield/reports"
 
 [[sensor]]
 name = "honeypot-a"
 logpath = "/mnt/dshield/a/NSM/cowrie"
 summarizedays = 1
 email = "you@example.com"
+## Optional per-sensor report directory override
+# report_dir = "/mnt/dshield/reports/honeypot-a"
 
 [[sensor]]
 name = "honeypot-b"
@@ -194,6 +206,10 @@ python orchestrate_sensors.py --config sensors.toml --max-retries 3 --pause-seco
 Reliability:
 - The orchestrator retries each sensor with exponential backoff to handle transient API timeouts (URLhaus, DShield, VT, SPUR).
 - For large backfills, run processing off-hours and generate ES reports afterwards.
+
+Output locations:
+- If `[global].report_dir` is set, each sensor run writes to `<report_dir>/<sensor>/<timestamp>/`.
+- If not set, the processor derives the base from the sensor’s `logpath` (`<logpath>/../reports`).
 
 ## Refreshing Cache and Recent Reports
 
@@ -217,6 +233,7 @@ Notes:
 - VT unknown hashes are rechecked sooner (default 12 hours) via `--hash-unknown-ttl-hours`.
 - IP lookups default TTL is 12 hours; hashes default 30 days.
 - Rate limits are enforced per service; adjust via flags.
+- Reports and API caches are written under `--output-dir` (or `<logpath>/../reports` by default), in subfolders by `sensor/date`.
 
 ## Contributing
 

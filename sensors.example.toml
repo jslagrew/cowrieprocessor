@@ -1,11 +1,14 @@
 [global]
 db = "/mnt/dshield/data/db/cowrieprocessor.sqlite"
+report_dir = "/mnt/dshield/reports"
 
 [[sensor]]
 name = "honeypot-a"
 logpath = "/mnt/dshield/a/NSM/cowrie"
 summarizedays = 1
 email = "you@example.com"
+# Optional per-sensor override for report_dir
+# report_dir = "/mnt/dshield/reports/honeypot-a"
 # vtapi = "..."
 # urlhausapi = "..."
 # spurapi = "..."
@@ -14,4 +17,3 @@ email = "you@example.com"
 name = "honeypot-b"
 logpath = "/mnt/dshield/b/NSM/cowrie"
 summarizedays = 1
-
