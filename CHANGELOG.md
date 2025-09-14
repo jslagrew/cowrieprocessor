@@ -84,3 +84,27 @@ All notable changes to the Cowrie Processor script will be documented in this fi
 - File download/upload tracking
 - Abnormal attack detection
 - Report generation 
+## [Unreleased]
+### Added
+- Central SQLite database support with per-sensor tagging via `--sensor` and `--db` (tables now include `hostname`).
+- SQLite runtime tuning for central DB (WAL mode, `busy_timeout=5000`).
+- Elasticsearch write via ILM write aliases in `es_reports.py` (daily/weekly/monthly `*-write`).
+- ILM policies guidance updated to keep indices forever (no delete): daily hot 7d -> cold, weekly hot 30d -> cold, monthly hot 90d -> cold.
+- Per-sensor and aggregate daily reports; weekly and monthly rollups from daily docs.
+- Orchestration script `orchestrate_sensors.py` with TOML config (`sensors.example.toml`).
+- Environment variable `ES_VERIFY_SSL=false` support in `es_reports.py`.
+- Requirements updated: `elasticsearch>=8,<9` and `tomli` (for Python <3.11).
+- API robustness in `process_cowrie.py`: HTTP timeouts, retries with backoff, and per-service rate limiting; `indicator_cache` table with TTLs for hashes/IPs to reduce API load.
+- Refresh utility `refresh_cache_and_reports.py` to renew indicator cache and reindex recent daily/weekly/monthly reports within hot windows.
+
+### Changed
+- README documentation expanded: central DB usage, ES reporting, write aliases, and orchestration.
+- Deployment guidance references write aliases for ILM consistency.
+ - ILM policies updated to never delete; daily hot 7d -> cold, weekly hot 30d -> cold, monthly hot 90d -> cold.
+
+### Notes
+- Historical merge is not required; rebuild from retained raw logs is recommended.
+- For concurrent writers, stagger processor runs slightly to minimize DB locks.
+
+### Removed
+- Deprecated `reports_index_template.json` in favor of per-type index templates and write aliases.
