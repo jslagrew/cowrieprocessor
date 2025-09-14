@@ -1,0 +1,58 @@
+[project]
+name = "cowrieprocessor"
+version = "0.1.0"
+description = "Process Cowrie honeypot logs with enrichments (VT, DShield, URLHaus, SPUR, Dropbox)."
+readme = "README.md"
+requires-python = ">=3.8"
+license = "BSD-4-Clause"
+keywords = ["cowrie", "honeypot", "security", "virustotal", "dshield", "urlhaus", "spur", "dropbox"]
+dependencies = [
+  "requests>=2.31.0",
+  "dropbox>=11.36.2",
+  "ipaddress>=1.0.23",
+  "pathlib>=1.0.1",
+  "python-dateutil>=2.8.2",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+# Using uv to manage a virtual environment and resolve dependencies from this pyproject.
+dev-dependencies = [
+  "ruff>=0.6.0",
+  "mypy>=1.11.0",
+  "types-requests>=2.32.0.20240914",
+]
+
+[tool.ruff]
+# Keep close to existing style; avoid massive churn.
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "D", "I"]
+ignore = []
+
+[tool.ruff.lint.pydocstyle]
+convention = "google" # Enforce Google-style docstrings
+
+[tool.ruff.format]
+quote-style = "preserve"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.13"
+ignore_missing_imports = true
+disallow_untyped_defs = false
+check_untyped_defs = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[tool.setuptools]
+py-modules = [
+  "process_cowrie",
+  "cowrie_malware_enrichment",
+  "submit_vtfiles",
+]

@@ -1,21 +1,29 @@
-from distutils import command
-from gc import collect
-import json
-from operator import contains
-import os
-import requests
-from os.path import exists
-import time
-import re
-import datetime
+"""Process and summarize Cowrie honeypot logs with enrichments.
+
+This script ingests Cowrie JSON logs and produces per-session summaries,
+optionally enriched with URLHaus, DShield, VirusTotal, SPUR.us, and Dropbox
+upload support. It also persists structured data to a local SQLite database
+for sessions, commands, and files.
+
+Run this as a standalone script; arguments are parsed at import time.
+"""
+
 import argparse
-from pathlib import Path
 import collections
-import dropbox
-import sqlite3
+import datetime
+import json
 import logging
-import sys
+import os
+import re
 import socket
+import sqlite3
+import sys
+import time
+from os.path import exists
+from pathlib import Path
+
+import dropbox
+import requests
 
 logging_fhandler = logging.FileHandler("cowrieprocessor.err")
 logging.root.addHandler(logging_fhandler)
@@ -33,19 +41,58 @@ logging.root.setLevel(logging.DEBUG)
 
 date = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
 
-parser = argparse.ArgumentParser(description='DShield Honeypot Cowrie Data Identifiers')
-parser.add_argument('--logpath', dest='logpath', type=str, help='Path of cowrie json log files', default='/srv/cowrie/var/log/cowrie')
-parser.add_argument('--ttyfile', dest='ttyfile', type=str, help='Name of TTY associated TTY log file')
-parser.add_argument('--downloadfile', dest='downloadfile', type=str, help='Name of downloaded file (matches file SHA-256 hash)')
-parser.add_argument('--session', dest='session', type=str, help='Cowrie session number')
-parser.add_argument('--vtapi', dest='vtapi', type=str, help='VirusTotal API key (required for VT data lookup)')
-parser.add_argument('--email', dest='email', type=str, help='Your email address (required for DShield IP lookup)')
-parser.add_argument('--summarizedays', dest='summarizedays', type=str, help='Will summarize all attacks in the give number of days')
-parser.add_argument('--dbxapi', dest='dbxapi', type=str, help='Dropbox access token for use with Dropbox upload of summary text files')
-parser.add_argument('--dbxkey', dest='dbxkey', type=str, help='Dropbox app key to be used to get new short-lived API access key')
-parser.add_argument('--dbxsecret', dest='dbxsecret', type=str, help='Dropbox app secret to be used to get new short-lived API access key')
-parser.add_argument('--dbxrefreshtoken', dest='dbxrefreshtoken', type=str, help='Dropbox refresh token to be used to get new short-lived API access key')
-parser.add_argument('--spurapi', dest='spurapi', type=str, help='SPUR.us API key to be used for SPUR.us data encrichment')
+parser = argparse.ArgumentParser(
+    description='DShield Honeypot Cowrie Data Identifiers'
+)
+parser.add_argument(
+    '--logpath', dest='logpath', type=str,
+    help='Path of cowrie json log files',
+    default='/srv/cowrie/var/log/cowrie',
+)
+parser.add_argument(
+    '--ttyfile', dest='ttyfile', type=str,
+    help='Name of TTY associated TTY log file',
+)
+parser.add_argument(
+    '--downloadfile', dest='downloadfile', type=str,
+    help='Name of downloaded file (matches file SHA-256 hash)',
+)
+parser.add_argument(
+    '--session', dest='session', type=str,
+    help='Cowrie session number',
+)
+parser.add_argument(
+    '--vtapi', dest='vtapi', type=str,
+    help='VirusTotal API key (required for VT data lookup)',
+)
+parser.add_argument(
+    '--email', dest='email', type=str,
+    help='Your email address (required for DShield IP lookup)',
+)
+parser.add_argument(
+    '--summarizedays', dest='summarizedays', type=str,
+    help='Will summarize all attacks in the give number of days',
+)
+parser.add_argument(
+    '--dbxapi', dest='dbxapi', type=str,
+    help='Dropbox access token for use with Dropbox upload of summary text files',
+)
+parser.add_argument(
+    '--dbxkey', dest='dbxkey', type=str,
+    help='Dropbox app key to be used to get new short-lived API access key',
+)
+parser.add_argument(
+    '--dbxsecret', dest='dbxsecret', type=str,
+    help='Dropbox app secret to be used to get new short-lived API access key',
+)
+parser.add_argument(
+    '--dbxrefreshtoken', dest='dbxrefreshtoken', type=str,
+    help='Dropbox refresh token to be used to get new short-lived API access key',
+)
+parser.add_argument(
+    '--spurapi', dest='spurapi', type=str,
+    help='SPUR.us API key to be used for SPUR.us data encrichment',
+)
 
 args = parser.parse_args()
 
@@ -78,17 +125,26 @@ vt_recent_submissions = set()
 abnormal_attacks = set()
 uncommon_command_counts = set()
 
-file_list = sorted(Path(log_location).iterdir(), key=os.path.getmtime)
+# All entries in the log directory (Path objects)
+path_entries = sorted(Path(log_location).iterdir(), key=os.path.getmtime)
 
 list_of_files = []
 
-for each_file in file_list:
+for each_file in path_entries:
     if ".json" in each_file.name:
         list_of_files.append(each_file.name)
 
 con = sqlite3.connect('../cowrieprocessor.sqlite')
 
 def initialize_database():
+    """Create and evolve the local SQLite schema if needed.
+
+    Creates the ``sessions``, ``commands``, and ``files`` tables when absent
+    and attempts to add newer SPUR-related columns to existing databases.
+
+    Returns:
+        None. Side effects: executes DDL statements and commits changes.
+    """
     logging.info("Database initializing...")
     cur = con.cursor()
     cur.execute('''
@@ -201,7 +257,7 @@ def initialize_database():
         cur.execute('''ALTER TABLE files ADD spur_tunnel_operator text''')
         cur.execute('''ALTER TABLE files ADD spur_tunnel_type text''')
         con.commit()        
-    except:
+    except Exception:
         print("Failure adding table columns, likely because they already exist...")
 
     try:
@@ -217,16 +273,24 @@ def initialize_database():
         cur.execute('''ALTER TABLE files ADD spur_tunnel_type text''')
         cur.execute('''ALTER TABLE files ADD spur_client_proxies text''')
         con.commit()        
-    except:
+    except Exception:
         logging.error("Failure adding table columns, likely because they already exist...")
     try:
         #add new columns for spur data in preexisting databases
         cur.execute('''ALTER TABLE sessions ADD session_duration int''')
         con.commit()        
-    except:
+    except Exception:
         logging.error("Failure adding table columns, likely because they already exist...")        
 
 def get_connected_sessions(data):
+    """Return unique session IDs that successfully authenticated.
+
+    Args:
+        data: Iterable of Cowrie event dictionaries.
+
+    Returns:
+        A ``set`` of session ID strings seen with ``cowrie.login.success``.
+    """
     logging.info("Extracting unique sessions...")
     sessions = set()
     for each_entry in data:
@@ -235,6 +299,17 @@ def get_connected_sessions(data):
     return sessions
 
 def get_session_id(data, type, match):
+    """Identify sessions by artifact type.
+
+    Args:
+        data: Iterable of Cowrie event dictionaries.
+        type: One of ``"tty"``, ``"download"``, or ``"all"``.
+        match: For ``tty``, the tty file name; for ``download``, the file
+            SHA-256; ignored for ``all``.
+
+    Returns:
+        A ``set`` of matching session ID strings.
+    """
     logging.info("Extracting unique sessions")
     sessions = set()
     if (type == "tty"):
@@ -258,6 +333,16 @@ def get_session_id(data, type, match):
     return sessions
 
 def get_session_duration(session, data):
+    """Return the session duration in seconds, if present.
+
+    Args:
+        session: Session ID string.
+        data: Iterable of Cowrie event dictionaries.
+
+    Returns:
+        Duration in seconds (``str`` or ``int`` as present in log), or
+        empty string if not found.
+    """
     logging.info("Getting session durations...")
     duration = ""
     for each_entry in data:
@@ -268,6 +353,15 @@ def get_session_duration(session, data):
     return duration
 
 def get_protocol_login(session, data):
+    """Return the network protocol for a session.
+
+    Args:
+        session: Session ID string.
+        data: Iterable of Cowrie event dictionaries.
+
+    Returns:
+        Protocol string (e.g., ``ssh`` or ``telnet``) if found, else None.
+    """
     logging.info("Getting protocol from session connection...")
     for each_entry in data:
         if each_entry['session'] == session:
@@ -275,12 +369,31 @@ def get_protocol_login(session, data):
                 return each_entry['protocol']
 
 def get_login_data(session, data):
+    """Extract login details for a session.
+
+    Args:
+        session: Session ID string.
+        data: Iterable of Cowrie event dictionaries.
+
+    Returns:
+        Tuple ``(username, password, timestamp, src_ip)`` for the first
+        ``cowrie.login.success`` entry in the session, or ``None`` if absent.
+    """
     for each_entry in data:
         if each_entry['session'] == session:
             if each_entry['eventid'] == "cowrie.login.success":
                 return each_entry['username'], each_entry['password'], each_entry['timestamp'], each_entry['src_ip']
 
 def get_command_total(session, data):
+    """Count commands executed in a session.
+
+    Args:
+        session: Session ID string.
+        data: Iterable of Cowrie event dictionaries.
+
+    Returns:
+        Integer count of events whose ``eventid`` starts with ``cowrie.command.``.
+    """
     count = 0
     for each_entry in data:
         if each_entry['session'] == session:
@@ -289,6 +402,15 @@ def get_command_total(session, data):
     return count
 
 def get_file_download(session, data):
+    """Collect file download events for a session.
+
+    Args:
+        session: Session ID string.
+        data: Iterable of Cowrie event dictionaries.
+
+    Returns:
+        A list of ``[url, shasum, src_ip, destfile]`` for each download.
+    """
     url = ""
     download_ip = ""
     shasum = ""
@@ -300,9 +422,14 @@ def get_file_download(session, data):
                 if "url" in each_entry:
                     url = each_entry['url'].replace(".", "[.]").replace("://", "[://]")
                     try:
-                        download_ip = re.findall(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})",each_entry['url'])[0]
-                    except:
-                        download_ip = re.findall(r"\:\/\/(.*?)\/",each_entry['url'])[0]
+                        download_ip = re.findall(
+                            r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})",
+                            each_entry['url'],
+                        )[0]
+                    except Exception:
+                        download_ip = re.findall(
+                            r"\:\/\/(.*?)\/", each_entry['url']
+                        )[0]
                 if "shasum" in each_entry:
                     shasum = each_entry['shasum']
                 if "destfile" in each_entry:
@@ -311,6 +438,15 @@ def get_file_download(session, data):
     return returndata
 
 def get_file_upload(session, data):
+    """Collect file upload events for a session.
+
+    Args:
+        session: Session ID string.
+        data: Iterable of Cowrie event dictionaries.
+
+    Returns:
+        A list of ``[url, shasum, src_ip, filename]`` for each upload.
+    """
     url = ""
     upload_ip = ""
     shasum = ""
@@ -322,9 +458,14 @@ def get_file_upload(session, data):
                 if "url" in each_entry:
                     url = each_entry['url'].replace(".", "[.]").replace("://", "[://]")
                     try:
-                        upload_ip = re.findall(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})",each_entry['url'])[0]
-                    except:
-                        upload_ip = re.findall(r"\:\/\/(.*?)\/",each_entry['url'])[0]
+                        upload_ip = re.findall(
+                            r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})",
+                            each_entry['url'],
+                        )[0]
+                    except Exception:
+                        upload_ip = re.findall(
+                            r"\:\/\/(.*?)\/", each_entry['url']
+                        )[0]
                 if "shasum" in each_entry:
                     shasum = each_entry['shasum']
                 if "filename" in each_entry:
@@ -334,35 +475,65 @@ def get_file_upload(session, data):
     return returndata
 
 def vt_query(hash):
+    """Query VirusTotal for a file hash and write the JSON response.
+
+    Args:
+        hash: SHA-256 string of the file to look up.
+
+    Returns:
+        None. Side effects: writes a file named after the hash.
+    """
     vt_session.headers = {'X-Apikey': vtapi}
     url = "https://www.virustotal.com/api/v3/files/" + hash
     response = vt_session.get(url)
-    json_response = json.loads(response.text)
     file = open(hash, 'w')
     file.write(response.text)
     file.close()
 
 def vt_filescan(hash):
+    """Upload a local file to VirusTotal for scanning.
+
+    Args:
+        hash: Filename under Cowrie downloads (usually the SHA-256 hash).
+
+    Returns:
+        None. Side effects: writes ``files_<hash>`` with the response.
+    """
     headers = {'X-Apikey': vtapi}
     url = "https://www.virustotal.com/api/v3/files"
     with open('/srv/cowrie/var/lib/cowrie/downloads/' + hash, 'rb') as file:
         files = {'file': ('/srv/cowrie/var/lib/cowrie/downloads/' + hash, file)}
         response = requests.post(url, headers=headers, files=files)
-    json_response = json.loads(response.text)
     file = open("files_" + hash, 'w')
     file.write(response.text)
     file.close()
 
 def dshield_query(ip_address):
+    """Query DShield for information about an IP address.
+
+    Args:
+        ip_address: IP address string.
+
+    Returns:
+        Parsed JSON response as a dictionary.
+    """
     headers = {"User-Agent": "DShield Research Query by " + email}
     response = requests.get("https://www.dshield.org/api/ip/" + ip_address + "?json", headers=headers)
     try:
         json_data = json.loads(response.text)
-    except:
+    except Exception:
         json_data = dshield_query(ip_address)
     return json_data
 
 def uh_query(ip_address):
+    """Query URLHaus for information about a host and cache the result.
+
+    Args:
+        ip_address: Host/IP string to look up.
+
+    Returns:
+        None. Side effects: writes ``uh_<ip>`` with the response JSON.
+    """
     host = {'host': ip_address}
     url = "https://urlhaus-api.abuse.ch/v1/host/"
     while True:
@@ -379,6 +550,16 @@ def uh_query(ip_address):
     file.close()
 
 def read_uh_data(ip_address):
+    """Read locally cached URLHaus data and return a tag summary.
+
+    Ensures a local cache exists by querying URLHaus when necessary.
+
+    Args:
+        ip_address: Host/IP string used to name the cache file.
+
+    Returns:
+        Comma-separated string of unique URLHaus tags, or empty string.
+    """
     if not exists("uh_" + ip_address):
         uh_query(ip_address)
     uh_data = open("uh_" + ip_address, 'r')
@@ -394,7 +575,7 @@ def read_uh_data(ip_address):
             if (eachurl['tags']):
                 for eachtag in eachurl['tags']:
                     tags.add(eachtag)
-    except:
+    except Exception:
         return ""
     stringtags = ""
     for eachtag in tags:
@@ -403,6 +584,14 @@ def read_uh_data(ip_address):
 
 
 def read_vt_data(hash):
+    """Parse a cached VirusTotal response for selected fields.
+
+    Args:
+        hash: SHA-256 string naming the cached VT response file.
+
+    Returns:
+        Tuple ``(description, classification, first_submission, malicious)``.
+    """
     hash_info = open(hash,'r')
     file = ""
     for each_time in hash_info:
@@ -412,32 +601,44 @@ def read_vt_data(hash):
     
     try:
         vt_description = json_data['data']['attributes']['type_description']
-    except:
+    except Exception:
         vt_description = ""
 
     try:
-        vt_threat_classification = json_data['data']['attributes']['popular_threat_classification']['suggested_threat_label']
-    except:
+        vt_threat_classification = json_data['data']['attributes'][
+            'popular_threat_classification'
+        ][
+            'suggested_threat_label'
+        ]
+    except Exception:
         vt_threat_classification = ""
     try:
         vt_first_submission = json_data['data']['attributes']['first_submission_date']
-    except:
+    except Exception:
         vt_first_submission = 0
     try:
         vt_malicious = json_data['data']['attributes']['last_analysis_stats']['malicious']
-    except:
+    except Exception:
         vt_malicious = 0
 
     return vt_description, vt_threat_classification, vt_first_submission, vt_malicious
 
 def spur_query(ip_address):
+    """Query SPUR.us for an IP context and cache the JSON response.
+
+    Args:
+        ip_address: IP address string.
+
+    Returns:
+        None. Side effects: writes ``spur_<ip>.json`` to disk.
+    """
     spur_session.headers = {'Token': spurapi}
     #token = {'Token': api_spur}
     url = "https://api.spur.us/v2/context/" + ip_address
     while True:
         try:
             response = spur_session.get(url)
-        except:
+        except Exception:
             print("Exception hit for SPUR query")
             time.sleep(10)
             continue
@@ -448,6 +649,20 @@ def spur_query(ip_address):
     file.close()
 
 def read_spur_data(ip_address):
+    """Read cached SPUR.us data and return normalized fields.
+
+    Ensures a local cache exists by querying SPUR when necessary.
+
+    Args:
+        ip_address: IP address string.
+
+    Returns:
+        List of SPUR attributes in the following order:
+        [asn, asn_org, organization, infrastructure, client_behaviors,
+         client_proxies, client_types, client_count, client_concentration,
+         client_countries, client_geospread, risks, services, location,
+         tunnel_anonymous, tunnel_entries, tunnel_operator, tunnel_type].
+    """
     global summary_text
     if not exists("spur" + "_" + ip_address.replace(":", "_") + ".json"):
         spur_query(ip_address)
@@ -557,7 +772,6 @@ def read_spur_data(ip_address):
     spur_list.append(location)
 
     if ("tunnels" in json_data):
-        tunnels = ""
         for each_tunnel in json_data['tunnels']:
             if ("anonymous" in each_tunnel):
                 tunnel_anonymous = each_tunnel['anonymous']
@@ -589,6 +803,20 @@ def read_spur_data(ip_address):
 
 
 def print_session_info(data, sessions, attack_type):
+    """Render and persist details for the provided sessions.
+
+    For each session, prints a formatted report, enriches from external
+    sources when configured, and inserts or updates rows in SQLite.
+
+    Args:
+        data: Iterable of Cowrie event dictionaries.
+        sessions: Iterable of session ID strings to include.
+        attack_type: Either ``"standard"`` or ``"abnormal"`` controlling
+            which report file the output is appended to.
+
+    Returns:
+        None.
+    """
     for session in sessions:
         cur = con.cursor()
         global attack_count
@@ -600,7 +828,7 @@ def print_session_info(data, sessions, attack_type):
         #this is usually needed due to an attack spanning multiple log files not included for processing
         try:
             username, password, timestamp, src_ip = get_login_data(session, data)
-        except:
+        except Exception:
             continue
         command_count = get_command_total(session, data)
         print("Command Count: " + str(command_count))
@@ -632,8 +860,13 @@ def print_session_info(data, sessions, attack_type):
                 attackstring += "{:>30s}  {:<50s}".format("SPUR ASN Organization", str(spur_session_data[1])) + "\n"
             if spur_session_data[2] != "":
                 attackstring += "{:>30s}  {:<50s}".format("SPUR Organization", str(spur_session_data[2])) + "\n"     
-            if spur_session_data[3] != "":                
-                attackstring += "{:>30s}  {:<50s}".format("SPUR Infrastructure", str(spur_session_data[3]))  + "\n"      
+            if spur_session_data[3] != "":
+                attackstring += (
+                    "{:>30s}  {:<50s}".format(
+                        "SPUR Infrastructure", str(spur_session_data[3])
+                    )
+                    + "\n"
+                )
             if spur_session_data[4] != "":                
                 attackstring += "{:>30s}  {:<50s}".format("SPUR Client Behaviors", str(spur_session_data[4])) + "\n"  
             if spur_session_data[5] != "":                
@@ -642,12 +875,22 @@ def print_session_info(data, sessions, attack_type):
                 attackstring += "{:>30s}  {:<50s}".format("SPUR Client Types", str(spur_session_data[6])) + "\n"  
             if spur_session_data[7] != "":                
                 attackstring += "{:>30s}  {:<50s}".format("SPUR Client Count", str(spur_session_data[7])) + "\n"  
-            if spur_session_data[8] != "":               
-                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Concentration", str(spur_session_data[8])) + "\n"  
+            if spur_session_data[8] != "":
+                attackstring += (
+                    "{:>30s}  {:<50s}".format(
+                        "SPUR Client Concentration", str(spur_session_data[8])
+                    )
+                    + "\n"
+                )
             if spur_session_data[9] != "":                
                 attackstring += "{:>30s}  {:<50s}".format("SPUR Client Countries", str(spur_session_data[9])) + "\n"    
-            if spur_session_data[10] != "":                
-                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Geo-spread", str(spur_session_data[10])) + "\n"    
+            if spur_session_data[10] != "":
+                attackstring += (
+                    "{:>30s}  {:<50s}".format(
+                        "SPUR Client Geo-spread", str(spur_session_data[10])
+                    )
+                    + "\n"
+                )
             if spur_session_data[11] != "":                
                 attackstring += "{:>30s}  {:<50s}".format("SPUR Risks", str(spur_session_data[11])) + "\n"  
             if spur_session_data[12] != "":                
@@ -691,9 +934,19 @@ def print_session_info(data, sessions, attack_type):
                     time.sleep(15)
 
                 if (exists(each_download[1]) and vtapi):
-                    vt_description, vt_threat_classification, vt_first_submission, vt_malicious = read_vt_data(each_download[1])
-                    attackstring += "{:>30s}  {:50s}".format("VT Description",(vt_description)) + "\n"
-                    attackstring += "{:>30s}  {:50s}".format("VT Threat Classification",(vt_threat_classification)) + "\n"
+                    vt_description, vt_threat_classification, vt_first_submission, vt_malicious = read_vt_data(
+                        each_download[1]
+                    )
+                    attackstring += (
+                        "{:>30s}  {:50s}".format("VT Description", (vt_description))
+                        + "\n"
+                    )
+                    attackstring += (
+                        "{:>30s}  {:50s}".format(
+                            "VT Threat Classification", (vt_threat_classification)
+                        )
+                        + "\n"
+                    )
                     if(download_data_needed == 0):
                         sql = '''UPDATE files SET vt_description=?, vt_threat_classification=?, vt_first_submission=?, 
                             vt_hits=?, transfer_method=?, added=? WHERE session=? and hash=?'''
@@ -706,7 +959,13 @@ def print_session_info(data, sessions, attack_type):
                         #abnormal_attacks.add(session)
                     else:
                         vt_classifications.append(vt_threat_classification)
-                    attackstring += "{:>30s}  {}".format("VT First Submssion",(datetime.datetime.fromtimestamp(int(vt_first_submission)))) + "\n"
+                    attackstring += (
+                        "{:>30s}  {}".format(
+                            "VT First Submssion",
+                            (datetime.datetime.fromtimestamp(int(vt_first_submission))),
+                        )
+                        + "\n"
+                    )
                     if (datetime.datetime.now() - datetime.datetime.fromtimestamp(int(vt_first_submission))).days <= 5:
                         abnormal_attacks.add(session)
                         vt_recent_submissions.add(session)
@@ -714,15 +973,29 @@ def print_session_info(data, sessions, attack_type):
 
                 if (each_download[2] != "" and email):
                     if (re.search('[a-zA-Z]', each_download[2])):
-                        attackstring += "{:>30s}  {:50s}".format("Download Source Address",each_download[2]) + "\n"
-                        attackstring += "{:>30s}  {:50s}".format("URLhaus Source Tags",read_uh_data(each_download[2])) + "\n"
+                        attackstring += "{:>30s}  {:50s}".format(
+                            "Download Source Address", each_download[2]
+                        ) + "\n"
+                        attackstring += (
+                            "{:>30s}  {:50s}".format(
+                                "URLhaus Source Tags", read_uh_data(each_download[2])
+                            )
+                            + "\n"
+                        )
                         sql = '''UPDATE files SET src_ip=?, urlhaus_tag=? WHERE session=? and hash=?'''
                         cur.execute(sql, (each_download[2], read_uh_data(each_download[2]), session, each_download[1]))
                         con.commit()
                     else:
                         json_data = dshield_query(each_download[2])
-                        attackstring += "{:>30s}  {:50s}".format("Download Source Address",each_download[2]) + "\n"
-                        attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_download[2])) + "\n"
+                        attackstring += "{:>30s}  {:50s}".format(
+                            "Download Source Address", each_download[2]
+                        ) + "\n"
+                        attackstring += (
+                            "{:>30s}  {:50s}".format(
+                                "URLhaus IP Tags", read_uh_data(each_download[2])
+                            )
+                            + "\n"
+                        )
                         attackstring += "{:>30s}  {:50s}".format("ASNAME",(json_data['ip']['asname'])) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY",(json_data['ip']['ascountry'])) + "\n"
 
@@ -731,39 +1004,114 @@ def print_session_info(data, sessions, attack_type):
                             if spur_data[0] != "":
                                 attackstring += "{:>30s}  {:<50s}".format("SPUR ASN", str(spur_data[0])) + "\n"
                             if spur_data[1] != "":
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR ASN Organization", str(spur_data[1])) + "\n"
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR ASN Organization", str(spur_data[1])
+                                    )
+                                    + "\n"
+                                )
                             if spur_data[2] != "":
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Organization", str(spur_data[2])) + "\n"     
-                            if spur_data[3] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Infrastructure", str(spur_data[3]))  + "\n"      
-                            if spur_data[4] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Behaviors", str(spur_data[4])) + "\n"  
-                            if spur_data[5] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Proxies", str(spur_data[5])) + "\n"  
-                            if spur_data[6] != "":               
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Types", str(spur_data[6])) + "\n"  
-                            if spur_data[7] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Count", str(spur_data[7])) + "\n"  
-                            if spur_data[8] != "":               
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Concentration", str(spur_data[8])) + "\n"  
-                            if spur_data[9] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Countries", str(spur_data[9])) + "\n"    
-                            if spur_data[10] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Geo-spread", str(spur_data[10])) + "\n"    
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Organization", str(spur_data[2])
+                                    )
+                                    + "\n"
+                                )     
+                            if spur_data[3] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Infrastructure", str(spur_data[3])
+                                    )
+                                    + "\n"
+                                )      
+                            if spur_data[4] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Client Behaviors", str(spur_data[4])
+                                    )
+                                    + "\n"
+                                )  
+                            if spur_data[5] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Client Proxies", str(spur_data[5])
+                                    )
+                                    + "\n"
+                                )  
+                            if spur_data[6] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Client Types", str(spur_data[6])
+                                    )
+                                    + "\n"
+                                )  
+                            if spur_data[7] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Client Count", str(spur_data[7])
+                                    )
+                                    + "\n"
+                                )  
+                            if spur_data[8] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Client Concentration", str(spur_data[8])
+                                    )
+                                    + "\n"
+                                )  
+                            if spur_data[9] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Client Countries", str(spur_data[9])
+                                    )
+                                    + "\n"
+                                )    
+                            if spur_data[10] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Client Geo-spread", str(spur_data[10])
+                                    )
+                                    + "\n"
+                                )    
                             if spur_data[11] != "":                
                                 attackstring += "{:>30s}  {:<50s}".format("SPUR Risks", str(spur_data[11])) + "\n"  
                             if spur_data[12] != "":                
                                 attackstring += "{:>30s}  {:<50s}".format("SPUR Services", str(spur_data[12])) + "\n"  
-                            if spur_data[13] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Location", str(spur_data[13])) + "\n"  
-                            if spur_data[14] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Anonymous Tunnel", str(spur_data[14])) + "\n"   
-                            if spur_data[15] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Entries", str(spur_data[15])) + "\n"  
-                            if spur_data[16] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Operator", str(spur_data[16])) + "\n"  
-                            if spur_data[17] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Type", str(spur_data[17])) + "\n"  
+                            if spur_data[13] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Location", str(spur_data[13])
+                                    )
+                                    + "\n"
+                                )
+                            if spur_data[14] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Anonymous Tunnel", str(spur_data[14])
+                                    )
+                                    + "\n"
+                                )   
+                            if spur_data[15] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Tunnel Entries", str(spur_data[15])
+                                    )
+                                    + "\n"
+                                )  
+                            if spur_data[16] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Tunnel Operator", str(spur_data[16])
+                                    )
+                                    + "\n"
+                                )  
+                            if spur_data[17] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Tunnel Type", str(spur_data[17])
+                                    )
+                                    + "\n"
+                                )  
                         
                             sql = '''UPDATE files SET src_ip=?, urlhaus_tag=?, asname=?, ascountry=?,
                                 spur_asn=?,
@@ -785,26 +1133,35 @@ def print_session_info(data, sessions, attack_type):
                                 spur_tunnel_operator=?,
                                 spur_tunnel_type=?                             
                                 WHERE session=? and hash=?'''
-                            cur.execute(sql, (each_download[2], read_uh_data(each_download[2]), json_data['ip']['asname'], json_data['ip']['ascountry'],
-                                            str(spur_data[0]),
-                                            str(spur_data[1]),
-                                            str(spur_data[2]),
-                                            str(spur_data[3]),
-                                            str(spur_data[4]),
-                                            str(spur_data[5]),
-                                            str(spur_data[6]),
-                                            str(spur_data[7]),
-                                            str(spur_data[8]),
-                                            str(spur_data[9]),
-                                            str(spur_data[10]),
-                                            str(spur_data[11]),
-                                            str(spur_data[12]),
-                                            str(spur_data[13]),
-                                            str(spur_data[14]),
-                                            str(spur_data[15]),
-                                            str(spur_data[16]),
-                                            str(spur_data[17]),
-                                            session, each_download[1]))
+                            cur.execute(
+                                sql,
+                                (
+                                    each_download[2],
+                                    read_uh_data(each_download[2]),
+                                    json_data['ip']['asname'],
+                                    json_data['ip']['ascountry'],
+                                    str(spur_data[0]),
+                                    str(spur_data[1]),
+                                    str(spur_data[2]),
+                                    str(spur_data[3]),
+                                    str(spur_data[4]),
+                                    str(spur_data[5]),
+                                    str(spur_data[6]),
+                                    str(spur_data[7]),
+                                    str(spur_data[8]),
+                                    str(spur_data[9]),
+                                    str(spur_data[10]),
+                                    str(spur_data[11]),
+                                    str(spur_data[12]),
+                                    str(spur_data[13]),
+                                    str(spur_data[14]),
+                                    str(spur_data[15]),
+                                    str(spur_data[16]),
+                                    str(spur_data[17]),
+                                    session,
+                                    each_download[1],
+                                ),
+                            )
                             con.commit()
 
 
@@ -836,10 +1193,26 @@ def print_session_info(data, sessions, attack_type):
                     time.sleep(15)
 
                 if (exists(each_upload[1]) and vtapi):
-                    vt_description, vt_threat_classification, vt_first_submission, vt_malicious = read_vt_data(each_upload[1])
-                    attackstring += "{:>30s}  {:50s}".format("VT Description",(vt_description)) + "\n"
-                    attackstring += "{:>30s}  {:50s}".format("VT Threat Classification",(vt_threat_classification)) + "\n"
-                    attackstring += "{:>30s}  {}".format("VT First Submssion",(datetime.datetime.fromtimestamp(int(vt_first_submission)))) + "\n"
+                    vt_description, vt_threat_classification, vt_first_submission, vt_malicious = read_vt_data(
+                        each_upload[1]
+                    )
+                    attackstring += (
+                        "{:>30s}  {:50s}".format("VT Description", (vt_description))
+                        + "\n"
+                    )
+                    attackstring += (
+                        "{:>30s}  {:50s}".format(
+                            "VT Threat Classification", (vt_threat_classification)
+                        )
+                        + "\n"
+                    )
+                    attackstring += (
+                        "{:>30s}  {}".format(
+                            "VT First Submssion",
+                            (datetime.datetime.fromtimestamp(int(vt_first_submission))),
+                        )
+                        + "\n"
+                    )
                     attackstring += "{:>30s}  {:<6d}".format("VT Malicious Hits",(vt_malicious)) + "\n"
 
                     if(upload_data_needed == 0):
@@ -851,8 +1224,15 @@ def print_session_info(data, sessions, attack_type):
 
                 if (each_upload[2] != "" and email):
                     if (re.search('[a-zA-Z]', each_upload[2])):
-                        attackstring += "{:>30s}  {:50s}".format("Upload Source Address",each_upload[2]) + "\n"
-                        attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_upload[2])) + "\n"
+                        attackstring += "{:>30s}  {:50s}".format(
+                            "Upload Source Address", each_upload[2]
+                        ) + "\n"
+                        attackstring += (
+                            "{:>30s}  {:50s}".format(
+                                "URLhaus IP Tags", read_uh_data(each_upload[2])
+                            )
+                            + "\n"
+                        )
 
                         sql = '''UPDATE files SET src_ip=?, urlhaus_tag=? WHERE session=? and hash=?'''
                         cur.execute(sql, (each_upload[2], read_uh_data(each_upload[2]), session, each_upload[1]))
@@ -860,8 +1240,15 @@ def print_session_info(data, sessions, attack_type):
 
                     else:
                         json_data = dshield_query(each_upload[2])
-                        attackstring += "{:>30s}  {:50s}".format("Upload Source Address",each_upload[2]) + "\n"
-                        attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",read_uh_data(each_upload[2])) + "\n"
+                        attackstring += "{:>30s}  {:50s}".format(
+                            "Upload Source Address", each_upload[2]
+                        ) + "\n"
+                        attackstring += (
+                            "{:>30s}  {:50s}".format(
+                                "URLhaus IP Tags", read_uh_data(each_upload[2])
+                            )
+                            + "\n"
+                        )
                         attackstring += "{:>30s}  {:50s}".format("ASNAME",(json_data['ip']['asname'])) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY",(json_data['ip']['ascountry'])) + "\n"
 
@@ -871,39 +1258,114 @@ def print_session_info(data, sessions, attack_type):
                             if spur_data[0] != "":
                                 attackstring += "{:>30s}  {:<50s}".format("SPUR ASN", str(spur_data[0])) + "\n"
                             if spur_data[1] != "":
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR ASN Organization", str(spur_data[1])) + "\n"
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR ASN Organization", str(spur_data[1])
+                                    )
+                                    + "\n"
+                                )
                             if spur_data[2] != "":
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Organization", str(spur_data[2])) + "\n"     
-                            if spur_data[3] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Infrastructure", str(spur_data[3]))  + "\n"      
-                            if spur_data[4] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Behaviors", str(spur_data[4])) + "\n"  
-                            if spur_data[5] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Proxies", str(spur_data[5])) + "\n"  
-                            if spur_data[6] != "":               
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Types", str(spur_data[6])) + "\n"  
-                            if spur_data[7] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Count", str(spur_data[7])) + "\n"  
-                            if spur_data[8] != "":               
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Concentration", str(spur_data[8])) + "\n"  
-                            if spur_data[9] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Countries", str(spur_data[9])) + "\n"    
-                            if spur_data[10] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Client Geo-spread", str(spur_data[10])) + "\n"    
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Organization", str(spur_data[2])
+                                    )
+                                    + "\n"
+                                )     
+                            if spur_data[3] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Infrastructure", str(spur_data[3])
+                                    )
+                                    + "\n"
+                                )
+                            if spur_data[4] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Client Behaviors", str(spur_data[4])
+                                    )
+                                    + "\n"
+                                )  
+                            if spur_data[5] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Client Proxies", str(spur_data[5])
+                                    )
+                                    + "\n"
+                                )  
+                            if spur_data[6] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Client Types", str(spur_data[6])
+                                    )
+                                    + "\n"
+                                )  
+                            if spur_data[7] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Client Count", str(spur_data[7])
+                                    )
+                                    + "\n"
+                                )  
+                            if spur_data[8] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Client Concentration", str(spur_data[8])
+                                    )
+                                    + "\n"
+                                )
+                            if spur_data[9] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Client Countries", str(spur_data[9])
+                                    )
+                                    + "\n"
+                                )    
+                            if spur_data[10] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Client Geo-spread", str(spur_data[10])
+                                    )
+                                    + "\n"
+                                )
                             if spur_data[11] != "":                
                                 attackstring += "{:>30s}  {:<50s}".format("SPUR Risks", str(spur_data[11])) + "\n"  
                             if spur_data[12] != "":                
                                 attackstring += "{:>30s}  {:<50s}".format("SPUR Services", str(spur_data[12])) + "\n"  
-                            if spur_data[13] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Location", str(spur_data[13])) + "\n"  
-                            if spur_data[14] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Anonymous Tunnel", str(spur_data[14])) + "\n"   
-                            if spur_data[15] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Entries", str(spur_data[15])) + "\n"  
-                            if spur_data[16] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Operator", str(spur_data[16])) + "\n"  
-                            if spur_data[17] != "":                
-                                attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Type", str(spur_data[17])) + "\n"                           
+                            if spur_data[13] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Location", str(spur_data[13])
+                                    )
+                                    + "\n"
+                                )  
+                            if spur_data[14] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Anonymous Tunnel", str(spur_data[14])
+                                    )
+                                    + "\n"
+                                )   
+                            if spur_data[15] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Tunnel Entries", str(spur_data[15])
+                                    )
+                                    + "\n"
+                                )  
+                            if spur_data[16] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Tunnel Operator", str(spur_data[16])
+                                    )
+                                    + "\n"
+                                )  
+                            if spur_data[17] != "":
+                                attackstring += (
+                                    "{:>30s}  {:<50s}".format(
+                                        "SPUR Tunnel Type", str(spur_data[17])
+                                    )
+                                    + "\n"
+                                )                           
 
                             sql = '''UPDATE files SET src_ip=?, urlhaus_tag=?, asname=?, ascountry=?,
                                 spur_asn=?,
@@ -925,33 +1387,45 @@ def print_session_info(data, sessions, attack_type):
                                 spur_tunnel_operator=?,
                                 spur_tunnel_type=?                             
                                 WHERE session=? and hash=?'''
-                            cur.execute(sql, (each_upload[2], read_uh_data(each_upload[2]), json_data['ip']['asname'], json_data['ip']['ascountry'],
-                                            str(spur_data[0]),
-                                            str(spur_data[1]),
-                                            str(spur_data[2]),
-                                            str(spur_data[3]),
-                                            str(spur_data[4]),
-                                            str(spur_data[5]),
-                                            str(spur_data[6]),
-                                            str(spur_data[7]),
-                                            str(spur_data[8]),
-                                            str(spur_data[9]),
-                                            str(spur_data[10]),
-                                            str(spur_data[11]),
-                                            str(spur_data[12]),
-                                            str(spur_data[13]),
-                                            str(spur_data[14]),
-                                            str(spur_data[15]),
-                                            str(spur_data[16]),
-                                            str(spur_data[17]),
-                                            session, each_upload[1]))
+                            cur.execute(
+                                sql,
+                                (
+                                    each_upload[2],
+                                    read_uh_data(each_upload[2]),
+                                    json_data['ip']['asname'],
+                                    json_data['ip']['ascountry'],
+                                    str(spur_data[0]),
+                                    str(spur_data[1]),
+                                    str(spur_data[2]),
+                                    str(spur_data[3]),
+                                    str(spur_data[4]),
+                                    str(spur_data[5]),
+                                    str(spur_data[6]),
+                                    str(spur_data[7]),
+                                    str(spur_data[8]),
+                                    str(spur_data[9]),
+                                    str(spur_data[10]),
+                                    str(spur_data[11]),
+                                    str(spur_data[12]),
+                                    str(spur_data[13]),
+                                    str(spur_data[14]),
+                                    str(spur_data[15]),
+                                    str(spur_data[16]),
+                                    str(spur_data[17]),
+                                    session,
+                                    each_upload[1],
+                                ),
+                            )
                             con.commit()
 
 
 
         attackstring += "\n////////////////// COMMANDS ATTEMPTED //////////////////\n\n"
         attackstring += get_commands(data, session) + "\n"
-        attackstring += "\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n\n"
+        attackstring += (
+            "\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n"
+            "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n\n"
+        )
         print(attackstring)
 
         utc_time = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%fZ")
@@ -963,16 +1437,49 @@ def print_session_info(data, sessions, attack_type):
         if (len(rows) > 0):
             print("Data for session " + session + " was already stored within database")
         else:
-            sql = '''INSERT INTO sessions( session, session_duration, protocol, username, password, timestamp, source_ip,
-                urlhaus_tag, asname, ascountry, total_commands, added) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'''
+            sql = (
+                "INSERT INTO sessions( session, session_duration, protocol, username, password, "
+                "timestamp, source_ip, urlhaus_tag, asname, ascountry, total_commands, added) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+            )
             
             if 'json_data' in locals():
-                cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip),
-                    json_data['ip']['asname'], json_data['ip']['ascountry'], command_count, time.time()))
+                cur.execute(
+                    sql,
+                    (
+                        session,
+                        session_duration,
+                        protocol,
+                        username,
+                        password,
+                        epoch_time,
+                        src_ip,
+                        read_uh_data(src_ip),
+                        json_data['ip']['asname'],
+                        json_data['ip']['ascountry'],
+                        command_count,
+                        time.time(),
+                    ),
+                )
                 con.commit()
             else:
-                cur.execute(sql, (session, session_duration, protocol, username, password, epoch_time, src_ip, read_uh_data(src_ip),
-                    "", "", command_count, time.time()))
+                cur.execute(
+                    sql,
+                    (
+                        session,
+                        session_duration,
+                        protocol,
+                        username,
+                        password,
+                        epoch_time,
+                        src_ip,
+                        read_uh_data(src_ip),
+                        "",
+                        "",
+                        command_count,
+                        time.time(),
+                    ),
+                )
                 con.commit()
 
 
@@ -1035,19 +1542,24 @@ def print_session_info(data, sessions, attack_type):
             report_file.close()
 
 def print_summary():
-    print("\n\n{:>30s}  {:8.2f}"
-        .format("Total Sessions",
-        len(session_data)))
+    """Legacy no-op summary function retained for compatibility.
 
-    print("{:>30s}  {:8.2f}"
-        .format("Most # of Commands Run",
-        max(command_count_data)))
-
-    print("{:>30s}  {:8.2f}\n\n"
-        .format("Average # of Commands Run",
-        sum(command_count_data)/len(command_count_data)))
+    The previous implementation referenced undefined globals. This
+    placeholder remains to avoid breaking callers but intentionally does
+    nothing.
+    """
+    return None
 
 def get_commands(data, session):
+    """Collect input commands for a session and persist them.
+
+    Args:
+        data: Iterable of Cowrie event dictionaries.
+        session: Session ID string.
+
+    Returns:
+        A string with each command prefixed by ``# `` and a newline.
+    """
     cur = con.cursor()
     commands = ""
     for each_entry in data:
@@ -1071,7 +1583,8 @@ def get_commands(data, session):
 
 initialize_database()
 
-if len(file_list) == 0: quit()
+if len(list_of_files) == 0:
+    quit()
 
 if (summarizedays):
     days = int(summarizedays)
@@ -1084,10 +1597,11 @@ if (summarizedays):
         i += 1
     list_of_files = file_list
 
-for each_file in list_of_files:
-    file_path = log_location + "/" + each_file
-    with open(file_path, 'r') as file:
-        print("Processing file " + file_path)
+for filename in list_of_files:
+    file_path_obj = Path(log_location) / filename
+    filepath_str = os.fspath(file_path_obj)
+    with open(filepath_str, 'r') as file:
+        print("Processing file " + filepath_str)
         for each_line in file:
             json_file = json.loads(each_line.replace('\0', ''))
             data.append(json_file)
@@ -1132,8 +1646,8 @@ for command in commands:
     #number of times the number of commands has been seen --> number_of_commands.count(command)
     command_number_dict[command] = number_of_commands.count(command)
 
-command_number_dict = sorted(command_number_dict.items(), key=lambda x:x[1])
-for key, value in command_number_dict:
+sorted_command_counts = sorted(command_number_dict.items(), key=lambda x: x[1])
+for key, value in sorted_command_counts:
     abnormal_command_counts.append(key)
 
 abnormal_command_counts = abnormal_command_counts[0:int(len(abnormal_command_counts)*(2/3))]
@@ -1202,7 +1716,7 @@ summarystring += "{:>48s}".format("------------------") + "\n"
 for classification in vt_class:
     summarystring += "{:>40s}  {:10s}".format(classification, str(vt_classifications.count(classification))) + "\n"
 summarystring += "\n"
-summarystring += "{:>60s}".format("Attacks With Uncommon Command Counts", "") + "\n"
+summarystring += "{:>60s}".format("Attacks With Uncommon Command Counts", ) + "\n"
 summarystring += "{:>60s}".format("------------------------------------") + "\n"
 for each_submission in uncommon_command_counts:
     summarystring += "{:>40s}  {:10s}".format("", each_submission) + "\n"
