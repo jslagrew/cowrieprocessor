@@ -9,8 +9,10 @@ Run this as a standalone script; arguments are parsed at import time.
 """
 
 import argparse
+import bz2
 import collections
 import datetime
+import gzip
 import json
 import logging
 import os
@@ -19,15 +21,18 @@ import socket
 import sqlite3
 import sys
 import time
-from os.path import exists
 from pathlib import Path
 
 import dropbox
-import bz2
-import gzip
 import requests
 
-logging_fhandler = logging.FileHandler("cowrieprocessor.err")
+# Default logs directory (can be overridden later via --log-dir)
+default_logs_dir = Path('/mnt/dshield/data/logs')
+try:
+    default_logs_dir.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+logging_fhandler = logging.FileHandler(default_logs_dir / "cowrieprocessor.err")
 logging.root.addHandler(logging_fhandler)
 basic_with_time_format = '%(asctime)s:%(levelname)s:%(name)s:%(filename)s:%(funcName)s:%(message)s'
 logging_fhandler.setFormatter(logging.Formatter(basic_with_time_format))
@@ -99,6 +104,14 @@ parser.add_argument(
     '--urlhausapi', dest='urlhausapi', type=str,
     help='URLhaus API key for URLhaus data enrichment',
 )
+parser.add_argument('--data-dir', dest='data_dir', type=str,
+    default='/mnt/dshield/data', help='Base directory for data: cache/temp/logs (default: /mnt/dshield/data)')
+parser.add_argument('--cache-dir', dest='cache_dir', type=str,
+    help='Cache directory (default: <data-dir>/cache/cowrieprocessor)')
+parser.add_argument('--temp-dir', dest='temp_dir', type=str,
+    help='Temp directory (default: <data-dir>/temp/cowrieprocessor)')
+parser.add_argument('--log-dir', dest='log_dir', type=str,
+    help='Logs directory (default: <data-dir>/logs)')
  
 parser.add_argument('--api-timeout', dest='api_timeout', type=int, default=15,
     help='HTTP timeout in seconds for external APIs (default: 15)')
@@ -198,12 +211,22 @@ def cache_upsert(service, key, data):
 hostname = args.sensor if args.sensor else socket.gethostname()
 filename_prepend = f"_{hostname}"
 
+# Configure data directories
+base_data_dir = Path(getattr(args, 'data_dir', '/mnt/dshield/data'))
+cache_dir = Path(args.cache_dir) if getattr(args, 'cache_dir', None) else (base_data_dir / 'cache' / 'cowrieprocessor')
+temp_dir = Path(args.temp_dir) if getattr(args, 'temp_dir', None) else (base_data_dir / 'temp' / 'cowrieprocessor')
+for d in (cache_dir, temp_dir):
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        logging.error(f"Failed creating directory {d}", exc_info=True)
+
 # Determine output directory: configurable or derived from log path
 try:
     default_base = (Path(log_location).parent / 'reports')
 except Exception:
     default_base = Path.cwd() / 'reports'
-base_output_dir = Path(args.output_dir) if args.output_dir else default_base
+base_output_dir = Path(args.output_dir) if getattr(args, 'output_dir', None) else default_base
 run_dir = base_output_dir / hostname / date
 run_dir.mkdir(parents=True, exist_ok=True)
 os.chdir(run_dir)
@@ -595,17 +618,19 @@ def get_file_upload(session, data):
     #vt_filescan(shasum)
     return returndata
 
-def vt_query(hash):
+def vt_query(hash, cache_dir: Path):
     """Query VirusTotal for a file hash and write the JSON response.
 
     Args:
         hash: SHA-256 string of the file to look up.
+        cache_dir: Directory to write/read cached VT responses.
 
     Returns:
         None. Side effects: writes a file named after the hash.
     """
     # If cached and TTL valid, restore from DB to file if needed
     cached = cache_get('vt_file', hash)
+    vt_path = cache_dir / hash
     if cached:
         last_fetched, data = cached
         ttl = hash_ttl_seconds
@@ -618,8 +643,8 @@ def vt_query(hash):
         except Exception:
             ttl = hash_unknown_ttl_seconds
         if (time.time() - last_fetched) < ttl:
-            if not exists(hash) and data:
-                with open(hash, 'w') as f:
+            if not vt_path.exists() and data:
+                with open(vt_path, 'w') as f:
                     f.write(data)
             return
     vt_session.headers = {'X-Apikey': vtapi}
@@ -636,12 +661,12 @@ def vt_query(hash):
             if response.status_code == 404:
                 # Cache not found and recheck sooner
                 placeholder = json.dumps({"error": "not_found"})
-                with open(hash, 'w') as f:
+                with open(vt_path, 'w') as f:
                     f.write(placeholder)
                 cache_upsert('vt_file', hash, placeholder)
                 return
             response.raise_for_status()
-            with open(hash, 'w') as f:
+            with open(vt_path, 'w') as f:
                 f.write(response.text)
             cache_upsert('vt_file', hash, response.text)
             return
@@ -649,11 +674,12 @@ def vt_query(hash):
             time.sleep(api_backoff * attempt)
     logging.error(f"VT query failed for {hash} after retries")
 
-def vt_filescan(hash):
+def vt_filescan(hash, cache_dir: Path):
     """Upload a local file to VirusTotal for scanning.
 
     Args:
         hash: Filename under Cowrie downloads (usually the SHA-256 hash).
+        cache_dir: Directory to write the VT filescan response cache.
 
     Returns:
         None. Side effects: writes ``files_<hash>`` with the response.
@@ -672,7 +698,7 @@ def vt_filescan(hash):
                     time.sleep(api_backoff * attempt)
                     continue
                 response.raise_for_status()
-                with open("files_" + hash, 'w') as f:
+                with open(cache_dir / ("files_" + hash), 'w') as f:
                     f.write(response.text)
                 return
             except Exception:
@@ -732,7 +758,7 @@ def uh_query(ip_address, uh_api):
     if cached and (time.time() - cached[0]) < ip_ttl_seconds:
         data = cached[1]
         if data:
-            with open("uh_" + ip_address, 'w') as f:
+            with open(cache_dir / ("uh_" + ip_address), 'w') as f:
                 f.write(data)
             return
     attempt = 0
@@ -745,7 +771,7 @@ def uh_query(ip_address, uh_api):
                 time.sleep(api_backoff * attempt)
                 continue
             response.raise_for_status()
-            with open("uh_" + ip_address, 'w') as f:
+            with open(cache_dir / ("uh_" + ip_address), 'w') as f:
                 f.write(response.text)
             cache_upsert('urlhaus_ip', ip_address, response.text)
             return
@@ -767,9 +793,10 @@ def read_uh_data(ip_address, urlhausapi):
     Returns:
         Comma-separated string of unique URLHaus tags, or empty string.
     """
-    if not exists("uh_" + ip_address):
+    uh_path = cache_dir / ("uh_" + ip_address)
+    if not uh_path.exists():
         uh_query(ip_address, urlhausapi)
-    uh_data = open("uh_" + ip_address, 'r')
+    uh_data = open(uh_path, 'r')
     tags = ""
     file = ""
     for eachline in uh_data:
@@ -790,16 +817,17 @@ def read_uh_data(ip_address, urlhausapi):
     return stringtags[:-2]
 
 
-def read_vt_data(hash):
+def read_vt_data(hash, cache_dir: Path):
     """Parse a cached VirusTotal response for selected fields.
 
     Args:
         hash: SHA-256 string naming the cached VT response file.
+        cache_dir: Directory where the cached VT response is stored.
 
     Returns:
         Tuple ``(description, classification, first_submission, malicious)``.
     """
-    hash_info = open(hash,'r')
+    hash_info = open(cache_dir / hash,'r')
     file = ""
     for each_time in hash_info:
         file += each_time
@@ -844,7 +872,7 @@ def spur_query(ip_address):
     url = "https://api.spur.us/v2/context/" + ip_address
     # Use cache if fresh
     cached = cache_get('spur_ip', ip_address)
-    cache_file = "spur" + "_" + ip_address.replace(":", "_") + ".json"
+    cache_file = cache_dir / ("spur_" + ip_address.replace(":", "_") + ".json")
     if cached and (time.time() - cached[0]) < ip_ttl_seconds:
         data = cached[1]
         if data:
@@ -886,9 +914,10 @@ def read_spur_data(ip_address):
          tunnel_anonymous, tunnel_entries, tunnel_operator, tunnel_type].
     """
     global summary_text
-    if not exists("spur" + "_" + ip_address.replace(":", "_") + ".json"):
+    spur_path = cache_dir / ("spur_" + ip_address.replace(":", "_") + ".json")
+    if not spur_path.exists():
         spur_query(ip_address)
-    spur_data = open("spur" + "_" + ip_address.replace(":", "_") + ".json", 'r',encoding="utf-8")
+    spur_data = open(spur_path, 'r',encoding="utf-8")
     file = ""
     for eachline in spur_data:
         file += eachline
@@ -1152,13 +1181,14 @@ def print_session_info(data, sessions, attack_type):
                     con.commit()
 
 
-                if (not(exists(each_download[1])) and vtapi):
-                    vt_query(each_download[1])
+                vt_cache_path = (cache_dir / each_download[1])
+                if (not vt_cache_path.exists() and vtapi):
+                    vt_query(each_download[1], cache_dir)
                     time.sleep(15)
 
-                if (exists(each_download[1]) and vtapi):
+                if (vt_cache_path.exists() and vtapi):
                     vt_description, vt_threat_classification, vt_first_submission, vt_malicious = read_vt_data(
-                        each_download[1]
+                        each_download[1], cache_dir
                     )
                     attackstring += (
                         "{:>30s}  {:50s}".format("VT Description", (vt_description))
@@ -1423,13 +1453,14 @@ def print_session_info(data, sessions, attack_type):
                     cur.execute(sql, (session, each_upload[0], each_upload[1], each_upload[3], hostname))
                     con.commit()
 
-                if (not(exists(each_upload[1])) and vtapi):
-                    vt_query(each_upload[1])
+                up_vt_cache_path = (cache_dir / each_upload[1])
+                if (not up_vt_cache_path.exists() and vtapi):
+                    vt_query(each_upload[1], cache_dir)
                     time.sleep(15)
 
-                if (exists(each_upload[1]) and vtapi):
+                if (up_vt_cache_path.exists() and vtapi):
                     vt_description, vt_threat_classification, vt_first_submission, vt_malicious = read_vt_data(
-                        each_upload[1]
+                        each_upload[1], cache_dir
                     )
                     attackstring += (
                         "{:>30s}  {:50s}".format("VT Description", (vt_description))
@@ -1846,18 +1877,19 @@ if (summarizedays):
         i += 1
     list_of_files = file_list
 
+def open_json_lines(path: str):
+    """Open a JSONL file (supports .bz2 and .gz) for text reading."""
+    if path.endswith('.bz2'):
+        return bz2.open(path, 'rt', encoding='utf-8', errors='replace')
+    if path.endswith('.gz'):
+        return gzip.open(path, 'rt', encoding='utf-8', errors='replace')
+    return open(path, 'r', encoding='utf-8', errors='replace')
+
 for filename in list_of_files:
     file_path_obj = Path(log_location) / filename
     filepath_str = os.fspath(file_path_obj)
     print("Processing file " + filepath_str)
-    # Support plain, bz2, and gz JSONL files
-    if filename.endswith('.bz2'):
-        opener = lambda p: bz2.open(p, 'rt', encoding='utf-8', errors='replace')
-    elif filename.endswith('.gz'):
-        opener = lambda p: gzip.open(p, 'rt', encoding='utf-8', errors='replace')
-    else:
-        opener = lambda p: open(p, 'r', encoding='utf-8', errors='replace')
-    with opener(filepath_str) as file:
+    with open_json_lines(filepath_str) as file:
         for each_line in file:
             try:
                 json_file = json.loads(each_line.replace('\0', ''))

@@ -100,6 +100,9 @@ All notable changes to the Cowrie Processor script will be documented in this fi
   - New `--output-dir` flag in `process_cowrie.py`.
   - TOML support for `report_dir` (global or per-sensor) in `orchestrate_sensors.py`.
   - Default output base derived from `logpath` (`<logpath>/../reports`); final layout `<output-base>/<sensor>/<timestamp>/`.
+- Configurable data directories:
+  - `--data-dir` (default `/mnt/dshield/data`), `--cache-dir`, `--temp-dir`, and `--log-dir` to control caches, temp files, and logs.
+  - Caches (VT/URLhaus/SPUR) now persist under `<data-dir>/cache/cowrieprocessor` by default.
 
 ### Changed
 - README documentation expanded: central DB usage, ES reporting, write aliases, and orchestration.
@@ -107,6 +110,7 @@ All notable changes to the Cowrie Processor script will be documented in this fi
  - ILM policies updated to never delete; daily hot 7d -> cold, weekly hot 30d -> cold, monthly hot 90d -> cold.
 - Dropbox DB upload now reads from `--db` path reliably.
 - Process compressed logs (`.bz2`, `.gz`) and skip malformed lines to avoid decode crashes.
+- Logs written under `<data-dir>/logs` by default (overridable with `--log-dir`).
 
 ### Notes
 - Historical merge is not required; rebuild from retained raw logs is recommended.

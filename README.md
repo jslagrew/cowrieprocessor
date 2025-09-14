@@ -83,6 +83,10 @@ python process_cowrie.py --logpath /path/to/cowrie/logs --email your.email@examp
 - `--rate-urlhaus`: Max URLhaus requests per minute (default: 30)
 - `--rate-spur`: Max SPUR requests per minute (default: 30)
 - `--output-dir`: Base directory for reports and caches (default: `<logpath>/../reports`)
+- `--data-dir`: Base path for data (cache/temp/logs) (default: `/mnt/dshield/data`)
+- `--cache-dir`: Cache path override (default: `<data-dir>/cache/cowrieprocessor`)
+- `--temp-dir`: Temp path override (default: `<data-dir>/temp/cowrieprocessor`)
+- `--log-dir`: Logs path override (default: `<data-dir>/logs`)
 
 ### Example
 
@@ -210,6 +214,11 @@ Reliability:
 Output locations:
 - If `[global].report_dir` is set, each sensor run writes to `<report_dir>/<sensor>/<timestamp>/`.
 - If not set, the processor derives the base from the sensor’s `logpath` (`<logpath>/../reports`).
+
+Data locations:
+- Caches (VT, URLhaus, SPUR, etc.) and temp files are written under `<data-dir>`
+  - Defaults: `/mnt/dshield/data/cache/cowrieprocessor` and `/mnt/dshield/data/temp/cowrieprocessor`
+  - Override with `--cache-dir` and `--temp-dir`
 
 ## Refreshing Cache and Recent Reports
 
