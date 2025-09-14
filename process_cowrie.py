@@ -23,6 +23,8 @@ from os.path import exists
 from pathlib import Path
 
 import dropbox
+import bz2
+import gzip
 import requests
 
 logging_fhandler = logging.FileHandler("cowrieprocessor.err")
@@ -1836,12 +1838,22 @@ if (summarizedays):
 for filename in list_of_files:
     file_path_obj = Path(log_location) / filename
     filepath_str = os.fspath(file_path_obj)
-    with open(filepath_str, 'r') as file:
-        print("Processing file " + filepath_str)
+    print("Processing file " + filepath_str)
+    # Support plain, bz2, and gz JSONL files
+    if filename.endswith('.bz2'):
+        opener = lambda p: bz2.open(p, 'rt', encoding='utf-8', errors='replace')
+    elif filename.endswith('.gz'):
+        opener = lambda p: gzip.open(p, 'rt', encoding='utf-8', errors='replace')
+    else:
+        opener = lambda p: open(p, 'r', encoding='utf-8', errors='replace')
+    with opener(filepath_str) as file:
         for each_line in file:
-            json_file = json.loads(each_line.replace('\0', ''))
-            data.append(json_file)
-        file.close()
+            try:
+                json_file = json.loads(each_line.replace('\0', ''))
+                data.append(json_file)
+            except Exception:
+                # Skip malformed lines
+                continue
 
 vt_session = requests.session()
 dshield_session = requests.session()
