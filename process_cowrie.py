@@ -97,15 +97,7 @@ parser.add_argument(
     '--urlhausapi', dest='urlhausapi', type=str,
     help='URLhaus API key for URLhaus data enrichment',
 )
-parser.add_argument(
-    '--sensor', dest='sensor', type=str,
-    help='Sensor name/hostname to tag data with (defaults to system hostname)'
-)
-parser.add_argument(
-    '--db', dest='db', type=str,
-    help='Path to central SQLite database',
-    default='../cowrieprocessor.sqlite',
-)
+ 
 parser.add_argument('--api-timeout', dest='api_timeout', type=int, default=15,
     help='HTTP timeout in seconds for external APIs (default: 15)')
 parser.add_argument('--api-retries', dest='api_retries', type=int, default=3,
