@@ -2,6 +2,31 @@
 
 All notable changes to the Cowrie Processor script will be documented in this file.
 
+## [2025-09-14] - Upstream backports, docs, and tooling
+
+### Added
+- Google-style docstrings across all modules (`process_cowrie.py`, `cowrie_malware_enrichment.py`, `submit_vtfiles.py`).
+- `pyproject.toml` with explicit `py-modules`, runtime dependencies, and build metadata for uv-managed environments.
+- Ruff and MyPy configuration under `pyproject.toml` with dev dependencies (`ruff`, `mypy`, `types-requests`).
+- New CLI argument `--urlhausapi` for authenticated URLhaus lookups. When omitted, URLhaus lookups are skipped.
+
+### Changed
+- Import order and formatting standardized; long lines and bare `except` replaced to satisfy Ruff.
+- Minor refactors to avoid variable shadowing and improve type clarity (Path vs str) for MyPy.
+- License field in `pyproject.toml` updated to SPDX string (`BSD-4-Clause`).
+- README updated to document `--urlhausapi` usage and examples.
+
+### Fixed
+- Backported upstream fixes around URLhaus handling:
+  - Add Auth-Key header support for URLhaus API.
+  - Guard URLhaus calls and output when no API key is provided.
+  - Improve robustness around JSON parsing in external API responses.
+- Resolved MyPy issues in file iteration and command count aggregation.
+
+### Tooling
+- Target Python 3.13 for tooling (Ruff `py313`, MyPy `python_version = "3.13"`), while keeping runtime requirement at Python 3.8+.
+- All files pass `ruff check .` and `mypy .` in CI-like runs with uv.
+
 ## [2024-06-15] - Major Updates
 
 ### Added

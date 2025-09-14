@@ -64,6 +64,7 @@ python process_cowrie.py --logpath /path/to/cowrie/logs --email your.email@examp
 - `--dbxsecret`: Dropbox app secret to be used to get new short-lived API access key
 - `--dbxrefreshtoken`: Dropbox refresh token to be used to get new short-lived API access key
 - `--spurapi`: SPUR.us API key to be used for SPUR.us data enrichment
+- `--urlhausapi`: URLhaus API key to be used for URLhaus data enrichment (optional; if omitted, URLhaus lookups are skipped)
 - `--localpath`: Local path for saving reports (default: '/mnt/dshield/reports')
 - `--datapath`: Local path for database and working files (default: '/mnt/dshield/data')
 
@@ -76,6 +77,7 @@ python process_cowrie.py \
     --email your.email@example.com \
     --summarizedays 90 \
     --vtapi your_vt_api_key \
+    --urlhausapi your_urlhaus_api_key \
     --spurapi your_spur_api_key \
     --dbxapi your_dropbox_api_key
 ```
@@ -126,6 +128,7 @@ By default, the script will look for any Cowrie JSON logs in the /srv/cowrie/var
     - This will create two different report text files within the destination folder. One will be the summary for every attack seen in that time period. Another file will contain only attacks that appeared more unique (low or absent virustotal hit count for malware or less than 5 instances of attacks comprised of the same number of commands executed during the attack.  
 - Optional Search Term
   - --vtapi <VT API Key> --> VirusTotal API Key to enrich data with VT (will also download a local copy in working path with full JSON output)
+  - --urlhausapi <URLhaus API Key> --> URLhaus API key for authenticated URLhaus lookups; if omitted, URLhaus tags are skipped
   - --email <email address> --> Your email address, which will be used to register query with DShield when querying for additional IP address data
   - --logpath <path to cowrie JSON logs> --> Enter an alernate path where cowrie logs may be stored
   - --dbxapi <Dropbox API Key> --> If included, summary data text reports will be uploaded to Dropbox account within 'cowriesummaries' folder
