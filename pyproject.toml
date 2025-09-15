@@ -3,7 +3,7 @@ name = "cowrieprocessor"
 version = "0.1.0"
 description = "Process Cowrie honeypot logs with enrichments (VT, DShield, URLHaus, SPUR, Dropbox)."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = "BSD-4-Clause"
 keywords = ["cowrie", "honeypot", "security", "virustotal", "dshield", "urlhaus", "spur", "dropbox"]
 dependencies = [
@@ -21,9 +21,10 @@ build-backend = "setuptools.build_meta"
 [tool.uv]
 # Using uv to manage a virtual environment and resolve dependencies from this pyproject.
 dev-dependencies = [
-  "ruff>=0.6.0",
-  "mypy>=1.11.0",
-  "types-requests>=2.32.0.20240914",
+  "ruff==0.12.11",
+  "mypy==1.14.1",
+  "types-requests==2.32.0.20240914",
+  "pre-commit==3.8.0",
 ]
 
 [tool.ruff]

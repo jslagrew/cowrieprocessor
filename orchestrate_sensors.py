@@ -7,12 +7,16 @@ and writes to a shared central SQLite database with sensor tagging.
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Dict, Optional
 
 import tomli as tomllib
+
+from secrets_resolver import set_env_if_ref
 
 
 def load_config(path: Path) -> dict:
@@ -22,7 +26,11 @@ def load_config(path: Path) -> dict:
 
 
 def build_cmd(processor: Path, db: str, sensor_cfg: dict, overrides: dict) -> list:
-    """Build a process_cowrie.py command for a sensor configuration."""
+    """Build a process_cowrie.py command for a sensor configuration.
+
+    Note: Secrets are provided to the subprocess via environment variables,
+    not CLI flags, to avoid exposure in process lists or logs.
+    """
     cmd = [sys.executable, str(processor)]
 
     # Required basics
@@ -34,10 +42,7 @@ def build_cmd(processor: Path, db: str, sensor_cfg: dict, overrides: dict) -> li
     summarizedays = overrides.get("summarizedays") or sensor_cfg.get("summarizedays") or 1
     cmd += ["--summarizedays", str(summarizedays)]
 
-    # Optional keys if present
-    for k in ["vtapi", "urlhausapi", "spurapi", "email", "dbxapi", "dbxkey", "dbxsecret", "dbxrefreshtoken"]:
-        if sensor_cfg.get(k):
-            cmd += [f"--{k}", str(sensor_cfg[k])]
+    # Secrets handled via environment only (see prepare_env_for_sensor)
 
     # Optional output directory (sensor-level override or global)
     report_dir = sensor_cfg.get("report_dir") or overrides.get("report_dir")
@@ -53,16 +58,28 @@ def build_cmd(processor: Path, db: str, sensor_cfg: dict, overrides: dict) -> li
     return cmd
 
 
-def run_with_retries(cmd: list, max_retries: int = 2, base_sleep: float = 5.0,
-                     status_file: Path | None = None, poll_seconds: float = 0.0) -> int:
-    """Run a command with retry and optional status polling."""
+def run_with_retries(
+    cmd: list,
+    max_retries: int = 2,
+    base_sleep: float = 5.0,
+    status_file: Path | None = None,
+    poll_seconds: float = 0.0,
+    extra_env: Optional[Dict[str, str]] = None,
+) -> int:
+    """Run a command with retry and optional status polling.
+
+    If `extra_env` is provided, it is merged into the child environment.
+    """
     attempt = 0
+    child_env = dict(os.environ)
+    if extra_env:
+        child_env.update(extra_env)
     while True:
         attempt += 1
         print(f"[orchestrate] Running: {' '.join(cmd)} (attempt {attempt})")
         try:
             if status_file and poll_seconds > 0:
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=child_env)
                 try:
                     while proc.poll() is None:
                         time.sleep(poll_seconds)
@@ -87,7 +104,7 @@ def run_with_retries(cmd: list, max_retries: int = 2, base_sleep: float = 5.0,
                     proc.terminate()
                     raise
             else:
-                result = subprocess.run(cmd, capture_output=True, text=True)
+                result = subprocess.run(cmd, capture_output=True, text=True, env=child_env)
                 if result.returncode == 0:
                     if result.stdout:
                         print(result.stdout)
@@ -106,6 +123,33 @@ def run_with_retries(cmd: list, max_retries: int = 2, base_sleep: float = 5.0,
         sleep_for = base_sleep * attempt
         print(f"[orchestrate] Retry in {sleep_for:.1f}s...")
         time.sleep(sleep_for)
+
+
+def prepare_env_for_sensor(sensor_cfg: dict) -> Dict[str, str]:
+    """Resolve secret references and return environment variables for the child process.
+
+    Accepts both plain literals and secret reference schemes (env:, op://, file:, aws-sm://, vault://, sops://).
+    """
+    mapping = {
+        "vtapi": "VT_API_KEY",
+        "urlhausapi": "URLHAUS_API_KEY",
+        "spurapi": "SPUR_API_KEY",
+        "email": "DSHIELD_EMAIL",
+        "dbxapi": "DROPBOX_ACCESS_TOKEN",
+        "dbxkey": "DROPBOX_APP_KEY",
+        "dbxsecret": "DROPBOX_APP_SECRET",
+        "dbxrefreshtoken": "DROPBOX_REFRESH_TOKEN",
+    }
+    env: Dict[str, str] = {}
+    for key, var in mapping.items():
+        if key in sensor_cfg and sensor_cfg[key] is not None:
+            # Always prefer env over CLI; set even for plain literals to avoid CLI exposure
+            try:
+                set_env_if_ref(env, var, str(sensor_cfg[key]))
+            except Exception as e:
+                # Keep the error concise and avoid leaking details
+                raise RuntimeError(f"Failed to resolve secret for '{key}' ({type(e).__name__})") from e
+    return env
 
 
 def main():
@@ -177,8 +221,10 @@ def main():
                 staging_dir = staging_base / sensor_cfg["name"] / f"{start}_{end}"
                 staging_dir.mkdir(parents=True, exist_ok=True)
                 import re
+
                 pat = re.compile(r".*(\d{4}-\d{2}-\d{2}).*")
                 from datetime import datetime as dt
+
                 start_d = dt.strptime(start, "%Y-%m-%d").date()
                 end_d = dt.strptime(end, "%Y-%m-%d").date()
                 count = 0
@@ -197,6 +243,7 @@ def main():
                                 dest.symlink_to(p)
                             except Exception:
                                 import shutil
+
                                 shutil.copy2(p, dest)
                         count += 1
                 if count == 0:
@@ -208,15 +255,24 @@ def main():
                 print(f"[orchestrate] Failed to prepare staging for {sensor_cfg['name']}: {e}", file=sys.stderr)
                 staging_dir = None
 
+        # Build environment with secrets and command without secret flags
+        extra_env = prepare_env_for_sensor(sensor_cfg)
         cmd = build_cmd(processor, db, sensor_cfg, overrides)
         status_path = log_dir / 'status' / f"{sensor_cfg['name']}.json"
-        rc = run_with_retries(cmd, max_retries=args.max_retries, base_sleep=5.0,
-                              status_file=status_path, poll_seconds=args.status_poll_seconds)
+        rc = run_with_retries(
+            cmd,
+            max_retries=args.max_retries,
+            base_sleep=5.0,
+            status_file=status_path,
+            poll_seconds=args.status_poll_seconds,
+            extra_env=extra_env,
+        )
         if rc != 0:
             failures += 1
         if staging_dir and not args.keep_staging:
             try:
                 import shutil
+
                 shutil.rmtree(staging_dir)
             except Exception:
                 pass

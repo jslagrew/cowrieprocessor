@@ -13,6 +13,7 @@ picked up by es_reports.py via environment variables or flags (not handled here)
 
 import argparse
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -20,6 +21,8 @@ import time
 from datetime import datetime, timedelta
 
 import requests
+
+from secrets_resolver import is_reference, resolve_secret
 
 
 def parse_args():
@@ -78,6 +81,7 @@ def ensure_indicator_table(conn: sqlite3.Connection):
 
 class Refresher:
     """Service refresher for indicator cache with rate limiting and retries."""
+
     def __init__(self, args, conn: sqlite3.Connection):
         """Initialize refresher with args and SQLite connection."""
         self.args = args
@@ -241,15 +245,9 @@ class Refresher:
                 self.refresh_vt(h)
 
         # Seed IPs from sessions/files
-        cur.execute(
-            "SELECT DISTINCT source_ip as ip FROM sessions "
-            "WHERE source_ip IS NOT NULL AND source_ip != ''"
-        )
+        cur.execute("SELECT DISTINCT source_ip as ip FROM sessions " "WHERE source_ip IS NOT NULL AND source_ip != ''")
         ips = {row['ip'] for row in cur.fetchall()}
-        cur.execute(
-            "SELECT DISTINCT src_ip as ip FROM files "
-            "WHERE src_ip IS NOT NULL AND src_ip != ''"
-        )
+        cur.execute("SELECT DISTINCT src_ip as ip FROM files " "WHERE src_ip IS NOT NULL AND src_ip != ''")
         ips |= {row['ip'] for row in cur.fetchall()}
         for ip in ips:
             if not self.cache_get('dshield_ip', ip):
@@ -294,10 +292,18 @@ def refresh_reports(db_path: str, args):
     if args.refresh_reports in ('all', 'daily'):
         for i in range(args.hot_daily_days):
             date_str = (datetime.utcnow() - timedelta(days=i)).strftime('%Y-%m-%d')
-            subprocess.run([
-                sys.executable, 'es_reports.py', 'daily', '--all-sensors',
-                '--date', date_str, '--db', db_path,
-            ])
+            subprocess.run(
+                [
+                    sys.executable,
+                    'es_reports.py',
+                    'daily',
+                    '--all-sensors',
+                    '--date',
+                    date_str,
+                    '--db',
+                    db_path,
+                ]
+            )
 
     # Weekly covering last hot_weekly_days
     if args.refresh_reports in ('all', 'weekly'):
@@ -327,6 +333,19 @@ def refresh_reports(db_path: str, args):
 def main():
     """Module entrypoint."""
     args = parse_args()
+    # Secrets: allow environment fallbacks
+    args.vtapi = args.vtapi or os.getenv('VT_API_KEY')
+    args.email = args.email or os.getenv('DSHIELD_EMAIL')
+    args.urlhausapi = args.urlhausapi or os.getenv('URLHAUS_API_KEY')
+    args.spurapi = args.spurapi or os.getenv('SPUR_API_KEY')
+    # Resolve secret references if provided directly
+    try:
+        for k in ("vtapi", "email", "urlhausapi", "spurapi"):
+            v = getattr(args, k)
+            if is_reference(v):
+                setattr(args, k, resolve_secret(v))
+    except Exception:
+        pass
     conn = setup_db(args.db)
     ensure_indicator_table(conn)
 
