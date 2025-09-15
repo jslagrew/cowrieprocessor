@@ -245,6 +245,8 @@ except Exception:
 status_file = Path(args.status_file) if getattr(args, 'status_file', None) else (status_base / f"{hostname}.json")
 status_interval = max(5, int(getattr(args, 'status_interval', 30)))
 _last_status_ts = 0.0
+_last_state = ""
+_last_file = ""
 
 def write_status(state: str, total_files: int, processed_files: int, current_file: str = "", **extra):
     """Write JSON status to the status file at most every status_interval seconds.
@@ -253,11 +255,14 @@ def write_status(state: str, total_files: int, processed_files: int, current_fil
     into the payload (e.g., file_lines, elapsed_secs).
     """
     import json as _json
-    global _last_status_ts
+    global _last_status_ts, _last_state, _last_file
     now = time.time()
-    if (now - _last_status_ts) < status_interval and state != 'completed':
+    # Write immediately if state or current_file changed; otherwise throttle
+    if (state == _last_state and current_file == _last_file) and (now - _last_status_ts) < status_interval:
         return
     _last_status_ts = now
+    _last_state = state
+    _last_file = current_file
     payload = {
         'sensor': hostname,
         'pid': os.getpid(),
