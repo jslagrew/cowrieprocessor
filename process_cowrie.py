@@ -237,7 +237,7 @@ run_dir.mkdir(parents=True, exist_ok=True)
 os.chdir(run_dir)
 
 # Status file support
-status_base = Path(getattr(args, 'log_dir', '/mnt/dshield/data/logs')) / 'status'
+status_base = (Path(args.log_dir) if getattr(args, 'log_dir', None) else default_logs_dir) / 'status'
 try:
     status_base.mkdir(parents=True, exist_ok=True)
 except Exception:
