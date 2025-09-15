@@ -167,6 +167,7 @@ dbxsecret = args.dbxsecret
 dbxrefreshtoken = args.dbxrefreshtoken
 spurapi = args.spurapi
 urlhausapi = args.urlhausapi
+
 api_timeout = args.api_timeout if hasattr(args, 'api_timeout') else 15
 api_retries = args.api_retries if hasattr(args, 'api_retries') else 3
 api_backoff = args.api_backoff if hasattr(args, 'api_backoff') else 2.0
@@ -200,6 +201,7 @@ def cache_get(service, key):
     cur.execute('SELECT last_fetched, data FROM indicator_cache WHERE service=? AND key=?', (service, key))
     row = cur.fetchone()
     return row if row else None
+
 
 def cache_upsert(service, key, data):
     """Upsert indicator_cache row for service/key with current timestamp and data."""
@@ -856,6 +858,7 @@ def uh_query(ip_address, uh_api):
     while attempt < api_retries:
         attempt += 1
         try:
+
             rate_limit('urlhaus')
             response = uh_session.post(url, headers=uh_header, data=host, timeout=api_timeout)
             if response.status_code == 429:
@@ -1186,6 +1189,7 @@ def print_session_info(data, sessions, attack_type):
         attackstring += "{:>30s}  {:50s}".format("Password",str(password)) + "\n"
         attackstring += "{:>30s}  {:50s}".format("Timestamp",str(timestamp)) + "\n"
         attackstring += "{:>30s}  {:50s}".format("Source IP Address",str(src_ip)) + "\n"
+
         if urlhausapi:
             attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags",str(read_uh_data(src_ip, urlhausapi))) + "\n"
 
@@ -1317,6 +1321,7 @@ def print_session_info(data, sessions, attack_type):
 
                 if (each_download[2] != "" and email):
                     if (re.search('[a-zA-Z]', each_download[2])):
+
                         attackstring += "{:>30s}  {:50s}".format(
                             "Download Source Address", each_download[2]
                         ) + "\n"
@@ -1487,6 +1492,7 @@ def print_session_info(data, sessions, attack_type):
                                 spur_tunnel_entries=?,
                                 spur_tunnel_operator=?,
                                 spur_tunnel_type=?                             
+
                                 WHERE session=? and hash=? and hostname=?'''
                             cur.execute(
                                 sql,
@@ -1519,9 +1525,6 @@ def print_session_info(data, sessions, attack_type):
                                 ),
                             )
                             db_commit()
-
-
-
 
         if len(uploaddata) > 0:
             attackstring += "\n------------------- UPLOAD DATA -------------------\n"
@@ -1581,6 +1584,7 @@ def print_session_info(data, sessions, attack_type):
 
                 if (each_upload[2] != "" and email):
                     if (re.search('[a-zA-Z]', each_upload[2])):
+
                         attackstring += "{:>30s}  {:50s}".format(
                             "Upload Source Address", each_upload[2]
                         ) + "\n"
@@ -1754,6 +1758,7 @@ def print_session_info(data, sessions, attack_type):
                                 spur_tunnel_entries=?,
                                 spur_tunnel_operator=?,
                                 spur_tunnel_type=?                             
+
                                 WHERE session=? and hash=? and hostname=?'''
                             cur.execute(
                                 sql,
@@ -1788,7 +1793,6 @@ def print_session_info(data, sessions, attack_type):
                             db_commit()
 
 
-
         attackstring += "\n////////////////// COMMANDS ATTEMPTED //////////////////\n\n"
         attackstring += get_commands(data, session) + "\n"
         attackstring += (
@@ -1813,6 +1817,7 @@ def print_session_info(data, sessions, attack_type):
             )
             
             if 'json_data' in locals():
+
                 cur.execute(
                     sql,
                     (
@@ -1852,7 +1857,6 @@ def print_session_info(data, sessions, attack_type):
                     ),
                 )
                 db_commit()
-
 
             if(spurapi):
                 sql = '''UPDATE sessions SET 
