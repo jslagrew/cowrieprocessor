@@ -9,9 +9,15 @@ summarizedays = 1
 email = "you@example.com"
 # Optional per-sensor override for report_dir
 # report_dir = "/mnt/dshield/reports/honeypot-a"
-# vtapi = "..."
-# urlhausapi = "..."
-# spurapi = "..."
+#
+# Secrets can be provided as plain values or secret references.
+# Recommended: use secret references and let orchestrate_sensors set env vars.
+# Examples:
+# vtapi = "env:VT_API_KEY"                  # from environment
+# vtapi = "op://Security/VirusTotal/api"    # 1Password item field
+# urlhausapi = "aws-sm://us-east-1/urlhaus#api_key"  # AWS Secrets Manager
+# spurapi = "vault://kv/data/spur#token"     # HashiCorp Vault KV v2
+# email = "file:/run/secrets/dshield_email"   # From a file
 
 [[sensor]]
 name = "honeypot-b"

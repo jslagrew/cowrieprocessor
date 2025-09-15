@@ -1,5 +1,8 @@
 # Cowrie Processor
 
+[![Lint and Type Check](https://github.com/datagen24/cowrieprocessor/actions/workflows/ci.yml/badge.svg)](https://github.com/datagen24/cowrieprocessor/actions/workflows/ci.yml)
+Note: If you are working in a fork, update the badge URLs to your `owner/repo`.
+
 A Python script for processing and analyzing Cowrie honeypot logs, with integration to various security services.
 
 ## Features
@@ -19,7 +22,7 @@ A Python script for processing and analyzing Cowrie honeypot logs, with integrat
 
 ## Requirements
 
-- Python 3.8 or higher
+- Python 3.9 or higher
 - Virtual environment (recommended)
 - For Elasticsearch reporting and orchestration:
   - `elasticsearch>=8,<9`
@@ -46,7 +49,70 @@ source venv/bin/activate  # On Linux/Mac
 pip install -r requirements.txt
 ```
 
+## Secrets Management
+
+- Avoid passing secrets on the CLI. All scripts now read credentials from environment variables when flags are omitted.
+- The orchestrator resolves secret references and supplies secrets via environment variables to child processes, keeping them out of process lists and logs.
+
+Common environment variables:
+- `VT_API_KEY`, `URLHAUS_API_KEY`, `SPUR_API_KEY`, `DSHIELD_EMAIL`
+- `DROPBOX_ACCESS_TOKEN`, `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REFRESH_TOKEN`
+- `ES_HOST`, `ES_USERNAME`, `ES_PASSWORD`, `ES_API_KEY`, `ES_CLOUD_ID`
+
+Secret references (for use in `sensors.toml`):
+- `env:NAME` — from environment variable
+- `file:/path/to/secret` — read file contents
+- `op://vault/item/field` — 1Password CLI (`op read`)
+- `aws-sm://[region/]secret_id[#json_key]` — AWS Secrets Manager via AWS CLI
+- `vault://path[#field]` — HashiCorp Vault via `vault` CLI (KV v2 supported)
+- `sops://path[#json.key]` — Decrypt with `sops` CLI (expects JSON)
+
+Example `sensors.toml`:
+```toml
+[[sensor]]
+name = "honeypot-a"
+logpath = "/mnt/dshield/a/NSM/cowrie"
+summarizedays = 1
+vtapi = "op://Security/VirusTotal/api"
+urlhausapi = "aws-sm://us-east-1/urlhaus#api_key"
+spurapi = "env:SPUR_API_KEY"
+email = "file:/run/secrets/dshield_email"
+```
+
 ## Usage
+
+## Local Lint & Type Check
+
+Install the pinned tooling and run checks locally:
+
+```bash
+python -m pip install --upgrade pip
+pip install ruff==0.12.11 mypy==1.14.1 types-requests==2.32.0.20240914
+
+# Lint (including import order and docstrings)
+ruff check .
+
+# Static typing
+mypy .
+```
+
+The CI workflow at `.github/workflows/ci.yml` runs these same versions on every push and pull request.
+
+## Pre-commit Hooks
+
+Install and enable pre-commit to run Ruff and MyPy before each commit:
+
+```bash
+pip install pre-commit==3.8.0
+pre-commit install
+
+# Run on all files once
+pre-commit run --all-files
+```
+
+Hook configuration lives in `.pre-commit-config.yaml` and includes:
+- Ruff: linting, import sorting, and formatting (`ruff` + `ruff-format`)
+- MyPy: static type checks (with `types-requests`)
 
 Basic usage:
 ```bash
