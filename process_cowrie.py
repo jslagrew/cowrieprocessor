@@ -209,7 +209,7 @@ def cache_upsert(service, key, data):
         'ON CONFLICT(service, key) DO UPDATE SET last_fetched=excluded.last_fetched, data=excluded.data',
         (service, key, int(time.time()), data),
     )
-    con.commit()
+    db_commit()
 
 # string prepended to filename for report summaries
 # may want a '_' at the start of this string for readability
@@ -301,8 +301,7 @@ try:
 except Exception:
     pass
 
-# Bulk load mode: relax PRAGMAs and defer commits
-orig_commit = con.commit
+# Bulk load mode: relax PRAGMAs and gate commits
 bulk_load = bool(getattr(args, 'bulk_load', False))
 if bulk_load:
     try:
@@ -312,9 +311,18 @@ if bulk_load:
         con.execute('PRAGMA mmap_size=268435456') # 256MB if supported
     except Exception:
         logging.warning("Failed to set some bulk-load PRAGMAs", exc_info=True)
-    def _noop_commit():
-        return None
-    con.commit = _noop_commit  # type: ignore[method-assign]
+
+def db_commit():
+    """Commit the SQLite transaction unless in bulk-load mode.
+
+    In ``--bulk-load`` mode, intermediate commits are skipped for performance
+    and a single commit is issued at the end of processing.
+    """
+    try:
+        if not bulk_load:
+            con.commit()
+    except Exception:
+        logging.error("Commit failed", exc_info=True)
 
 def initialize_database():
     """Create and evolve the local SQLite schema if needed.
@@ -399,14 +407,14 @@ def initialize_database():
                 transfer_method text,
                 added int,
                 hostname text)''')
-    con.commit()
+    db_commit()
 
     try:
         # add hostname columns for multi-sensor central DB
         cur.execute('''ALTER TABLE sessions ADD hostname text''')
         cur.execute('''ALTER TABLE commands ADD hostname text''')
         cur.execute('''ALTER TABLE files ADD hostname text''')
-        con.commit()
+        db_commit()
     except Exception:
         logging.info("Hostname columns likely already exist...")
 
@@ -448,7 +456,7 @@ def initialize_database():
         cur.execute('''ALTER TABLE files ADD spur_tunnel_entries text''')
         cur.execute('''ALTER TABLE files ADD spur_tunnel_operator text''')
         cur.execute('''ALTER TABLE files ADD spur_tunnel_type text''')
-        con.commit()        
+        db_commit()        
     except Exception:
         print("Failure adding table columns, likely because they already exist...")
 
@@ -464,13 +472,13 @@ def initialize_database():
         cur.execute('''ALTER TABLE files ADD spur_tunnel_operator text''')
         cur.execute('''ALTER TABLE files ADD spur_tunnel_type text''')
         cur.execute('''ALTER TABLE files ADD spur_client_proxies text''')
-        con.commit()        
+        db_commit()        
     except Exception:
         logging.error("Failure adding table columns, likely because they already exist...")
     try:
         #add new columns for spur data in preexisting databases
         cur.execute('''ALTER TABLE sessions ADD session_duration int''')
-        con.commit()        
+        db_commit()        
     except Exception:
         logging.error("Failure adding table columns, likely because they already exist...")        
     # Create helpful indexes to speed reporting queries
@@ -482,7 +490,7 @@ def initialize_database():
         cur.execute('''CREATE INDEX IF NOT EXISTS idx_files_hash ON files(hash)''')
         cur.execute('''CREATE INDEX IF NOT EXISTS idx_commands_session ON commands(session)''')
         cur.execute('''CREATE INDEX IF NOT EXISTS idx_commands_ts ON commands(timestamp)''')
-        con.commit()
+        db_commit()
         logging.info("Database indexes ensured (IF NOT EXISTS)")
     except Exception:
         logging.error("Failure creating indexes (may already exist)")
@@ -495,7 +503,7 @@ def initialize_database():
                 data text,
                 PRIMARY KEY (service, key)
             )''')
-        con.commit()
+        db_commit()
     except Exception:
         logging.error("Failure creating indicator_cache table")
 
@@ -1251,7 +1259,7 @@ def print_session_info(data, sessions, attack_type):
                 else:
                     sql = '''INSERT INTO files(session, download_url, hash, file_path, hostname) VALUES (?,?,?,?,?)'''
                     cur.execute(sql, (session, each_download[0], each_download[1], each_download[3], hostname))
-                    con.commit()
+                    db_commit()
 
 
                 vt_cache_path = (cache_dir / each_download[1])
@@ -1278,7 +1286,7 @@ def print_session_info(data, sessions, attack_type):
                             vt_hits=?, transfer_method=?, added=? WHERE session=? and hash=? and hostname=?'''
                         cur.execute(sql, (vt_description, vt_threat_classification, vt_first_submission, vt_malicious,
                             "DOWNLOAD", time.time(), session, each_download[1], hostname))
-                        con.commit()
+                        db_commit()
                     if vt_threat_classification == "":
                         vt_classifications.append("<blank>") 
                         #commented out due to too many inclusions from hosts.deny data
@@ -1320,7 +1328,7 @@ def print_session_info(data, sessions, attack_type):
                                 hostname,
                             ),
                         )
-                        con.commit()
+                        db_commit()
                     else:
                         json_data = dshield_query(each_download[2])
                         attackstring += "{:>30s}  {:50s}".format(
@@ -1500,7 +1508,7 @@ def print_session_info(data, sessions, attack_type):
                                     hostname,
                                 ),
                             )
-                            con.commit()
+                            db_commit()
 
 
 
@@ -1524,7 +1532,7 @@ def print_session_info(data, sessions, attack_type):
                 else:
                     sql = '''INSERT INTO files(session, download_url, hash, file_path, hostname) VALUES (?,?,?,?,?)'''
                     cur.execute(sql, (session, each_upload[0], each_upload[1], each_upload[3], hostname))
-                    con.commit()
+                    db_commit()
 
                 up_vt_cache_path = (cache_dir / each_upload[1])
                 if (not up_vt_cache_path.exists() and vtapi):
@@ -1559,7 +1567,7 @@ def print_session_info(data, sessions, attack_type):
                             vt_hits=?, transfer_method=?, added=? WHERE session=? and hash=? and hostname=?'''
                         cur.execute(sql, (vt_description, vt_threat_classification, vt_first_submission, vt_malicious,
                             "UPLOAD", time.time(), session, each_upload[1], hostname))
-                        con.commit()
+                        db_commit()
 
                 if (each_upload[2] != "" and email):
                     if (re.search('[a-zA-Z]', each_upload[2])):
@@ -1585,7 +1593,7 @@ def print_session_info(data, sessions, attack_type):
                                 hostname,
                             ),
                         )
-                        con.commit()
+                        db_commit()
 
                     else:
                         json_data = dshield_query(each_upload[2])
@@ -1767,7 +1775,7 @@ def print_session_info(data, sessions, attack_type):
                                     hostname,
                                 ),
                             )
-                            con.commit()
+                            db_commit()
 
 
 
@@ -1813,7 +1821,7 @@ def print_session_info(data, sessions, attack_type):
                         hostname,
                     ),
                 )
-                con.commit()
+                db_commit()
             else:
                 cur.execute(
                     sql,
@@ -1833,7 +1841,7 @@ def print_session_info(data, sessions, attack_type):
                         hostname,
                     ),
                 )
-                con.commit()
+                db_commit()
 
 
             if(spurapi):
@@ -1876,7 +1884,7 @@ def print_session_info(data, sessions, attack_type):
                                     str(spur_session_data[16]),
                                     str(spur_session_data[17]),
                                     session, epoch_time, hostname))
-                con.commit()
+                db_commit()
 
 
         if (attack_type == "abnormal"):
@@ -1931,7 +1939,7 @@ def get_commands(data, session):
                     #utc_time = datetime.datetime.strptime(each_entry['timestamp'], "%Y-%m-%dT%H:%M:%S.%fZ")
                     #epoch_time = (utc_time - datetime.datetime(1970, 1, 1)).total_seconds()
                     cur.execute(sql, (session, each_entry['input'], epoch_time, time.time(), hostname))
-    con.commit()
+    db_commit()
     return commands
 
 initialize_database()
@@ -2094,8 +2102,7 @@ spur_session.close()
 # Final commit if bulk-load deferred commits
 try:
     if bulk_load:
-        con.commit = orig_commit  # type: ignore[method-assign]
-        orig_commit()
+        con.commit()
 except Exception:
     logging.error("Final commit failed in bulk-load mode", exc_info=True)
 
@@ -2177,4 +2184,4 @@ else:
     print("No Dropbox account information supplied to allow upload")
 
 print(summarystring)
-con.commit()
+db_commit()
