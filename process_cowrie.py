@@ -246,8 +246,12 @@ status_file = Path(args.status_file) if getattr(args, 'status_file', None) else 
 status_interval = max(5, int(getattr(args, 'status_interval', 30)))
 _last_status_ts = 0.0
 
-def write_status(state: str, total_files: int, processed_files: int, current_file: str = ""):
-    """Write JSON status to the status file at most every status_interval seconds."""
+def write_status(state: str, total_files: int, processed_files: int, current_file: str = "", **extra):
+    """Write JSON status to the status file at most every status_interval seconds.
+
+    Additional fields can be provided via keyword args and will be merged
+    into the payload (e.g., file_lines, elapsed_secs).
+    """
     import json as _json
     global _last_status_ts
     now = time.time()
@@ -265,6 +269,7 @@ def write_status(state: str, total_files: int, processed_files: int, current_fil
         'run_dir': os.fspath(run_dir),
         'timestamp': int(now),
     }
+    payload.update(extra)
     try:
         tmp = status_file.with_suffix('.tmp')
         with open(tmp, 'w', encoding='utf-8') as f:
@@ -1978,6 +1983,8 @@ for filename in list_of_files:
     write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
     try:
         with open_json_lines(filepath_str) as file:
+            line_count = 0
+            t_last = time.time()
             for each_line in file:
                 try:
                     json_file = json.loads(each_line.replace('\0', ''))
@@ -1985,12 +1992,18 @@ for filename in list_of_files:
                 except Exception:
                     # Skip malformed JSON lines
                     continue
+                line_count += 1
+                # heartbeat during large files
+                if (time.time() - t_last) >= max(5, status_interval):
+                    write_status(state='reading', total_files=total_files, processed_files=processed_files,
+                                 current_file=filename, file_lines=line_count)
+                    t_last = time.time()
     except EOFError:
         logging.warning(
             f"Compressed file appears truncated; skipping: {filepath_str}"
         )
         processed_files += 1
-        write_status(state='reading', total_files=total_files, processed_files=processed_files)
+        write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
         continue
     except Exception as e:
         logging.error(
@@ -1998,10 +2011,10 @@ for filename in list_of_files:
             exc_info=True,
         )
         processed_files += 1
-        write_status(state='reading', total_files=total_files, processed_files=processed_files)
+        write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
         continue
     processed_files += 1
-    write_status(state='reading', total_files=total_files, processed_files=processed_files)
+    write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
 
 vt_session = requests.session()
 dshield_session = requests.session()
