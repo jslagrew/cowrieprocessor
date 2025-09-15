@@ -20,7 +20,10 @@ from elasticsearch import Elasticsearch
 from secrets_resolver import is_reference, resolve_secret
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+)
 logger = logging.getLogger(__name__)
 
 
@@ -535,10 +538,10 @@ class CowrieReporter:
 
         try:
             self.es.index(index=index_alias, id=doc_id, document=report)
-            logger.info(f"Indexed report {doc_id} to {index_alias}")
+            logger.info("Indexed report %s to %s", doc_id, index_alias)
             return True
         except Exception as e:
-            logger.error(f"Failed to index report {doc_id}: {e}")
+            logger.error("Failed to index report %s: %s", doc_id, e)
             return False
 
     def backfill_daily(self, start_date: str, end_date: str, sensors: Optional[List[str]] = None) -> None:
@@ -568,7 +571,7 @@ class CowrieReporter:
 
         while current <= end:
             date_str = current.strftime("%Y-%m-%d")
-            logger.info(f"Processing {date_str}")
+            logger.info("Processing %s", date_str)
 
             for sensor in sensors_to_process:
                 sensor_name = sensor or "aggregate"
@@ -579,12 +582,17 @@ class CowrieReporter:
                     else:
                         failed_reports += 1
                 except Exception as e:
-                    logger.error(f"Failed to generate report for {sensor_name} on {date_str}: {e}")
+                    logger.error(
+                        "Failed to generate report for %s on %s: %s",
+                        sensor_name,
+                        date_str,
+                        e,
+                    )
                     failed_reports += 1
 
             current += timedelta(days=1)
 
-        logger.info(f"Backfill complete: {total_reports} indexed, {failed_reports} failed")
+        logger.info("Backfill complete: %s indexed, %s failed", total_reports, failed_reports)
 
     def generate_weekly_rollup(self, year_week: str) -> Optional[Dict[str, Any]]:
         """Generate weekly rollup from daily reports.
@@ -629,7 +637,7 @@ class CowrieReporter:
         response = self.es.search(index="cowrie.reports.daily-*", body=query)
 
         if not response['hits']['hits']:
-            logger.warning(f"No daily reports found for week {year_week}")
+            logger.warning("No daily reports found for week %s", year_week)
             return None
 
         # Aggregate the daily reports
@@ -721,7 +729,7 @@ class CowrieReporter:
         response = self.es.search(index="cowrie.reports.daily-*", body=query)
         hits = response.get('hits', {}).get('hits', [])
         if not hits:
-            logger.warning(f"No daily reports found for month {year_month}")
+            logger.warning("No daily reports found for month %s", year_month)
             return None
 
         monthly: Dict[str, Any] = {

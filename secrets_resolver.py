@@ -28,7 +28,7 @@ _ENV_PATTERN = re.compile(r"^\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)\}$")
 
 def _sh(cmd: list[str], env: Optional[dict] = None) -> str:
     """Run a command and return stdout as text (stripped)."""
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
     if result.returncode != 0:
         # Don't include stdout/stderr as it may contain sensitive info
         head = " ".join(shlex.quote(c) for c in cmd[:2])

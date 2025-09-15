@@ -152,6 +152,12 @@ parser.add_argument(
     help='Enable SQLite bulk load mode (defer commits, relaxed PRAGMAs)',
 )
 parser.add_argument(
+    '--skip-enrich',
+    dest='skip_enrich',
+    action='store_true',
+    help='Skip all external enrichments (VT, DShield, URLhaus, SPUR) for faster ingest',
+)
+parser.add_argument(
     '--buffer-bytes',
     dest='buffer_bytes',
     type=int,
@@ -237,6 +243,7 @@ dbxsecret = args.dbxsecret or os.getenv('DROPBOX_APP_SECRET')
 dbxrefreshtoken = args.dbxrefreshtoken or os.getenv('DROPBOX_REFRESH_TOKEN')
 spurapi = args.spurapi or os.getenv('SPUR_API_KEY')
 urlhausapi = args.urlhausapi or os.getenv('URLHAUS_API_KEY')
+skip_enrich = bool(getattr(args, 'skip_enrich', False))
 
 # Resolve secret references if provided directly
 try:
@@ -341,8 +348,6 @@ def write_status(state: str, total_files: int, processed_files: int, current_fil
     Additional fields can be provided via keyword args and will be merged
     into the payload (e.g., file_lines, elapsed_secs).
     """
-    import json as _json
-
     global _last_status_ts, _last_state, _last_file
     now = time.time()
     # Write immediately if state or current_file changed; otherwise throttle
@@ -366,7 +371,7 @@ def write_status(state: str, total_files: int, processed_files: int, current_fil
     try:
         tmp = status_file.with_suffix('.tmp')
         with open(tmp, 'w', encoding='utf-8') as f:
-            f.write(_json.dumps(payload))
+            f.write(json.dumps(payload))
         tmp.replace(status_file)
     except Exception:
         # Non-fatal
@@ -831,10 +836,10 @@ def vt_query(hash, cache_dir: Path):
             ttl = hash_unknown_ttl_seconds
         if (time.time() - last_fetched) < ttl:
             if not vt_path.exists() and data:
-                with open(vt_path, 'w') as f:
+                with open(vt_path, 'w', encoding='utf-8') as f:
                     f.write(data)
             return
-    if not vtapi:
+    if skip_enrich or not vtapi:
         return
     vt_session.headers.update({'X-Apikey': vtapi})
     url = "https://www.virustotal.com/api/v3/files/" + hash
@@ -850,18 +855,18 @@ def vt_query(hash, cache_dir: Path):
             if response.status_code == 404:
                 # Cache not found and recheck sooner
                 placeholder = json.dumps({"error": "not_found"})
-                with open(vt_path, 'w') as f:
+                with open(vt_path, 'w', encoding='utf-8') as f:
                     f.write(placeholder)
                 cache_upsert('vt_file', hash, placeholder)
                 return
             response.raise_for_status()
-            with open(vt_path, 'w') as f:
+            with open(vt_path, 'w', encoding='utf-8') as f:
                 f.write(response.text)
             cache_upsert('vt_file', hash, response.text)
             return
         except Exception:
             time.sleep(api_backoff * attempt)
-    logging.error(f"VT query failed for {hash} after retries")
+    logging.error("VT query failed for %s after retries", hash)
 
 
 def vt_filescan(hash, cache_dir: Path):
@@ -896,7 +901,7 @@ def vt_filescan(hash, cache_dir: Path):
                 return
             except Exception:
                 time.sleep(api_backoff * attempt)
-    logging.error(f"VT filescan failed for {hash}")
+    logging.error("VT filescan failed for %s", hash)
 
 
 def dshield_query(ip_address):
@@ -909,6 +914,8 @@ def dshield_query(ip_address):
         Parsed JSON response as a dictionary.
     """
     # Check cache
+    if skip_enrich:
+        return {"ip": {"asname": "", "ascountry": ""}}
     cached = cache_get('dshield_ip', ip_address)
     if cached and (time.time() - cached[0]) < ip_ttl_seconds:
         try:
@@ -931,7 +938,7 @@ def dshield_query(ip_address):
             return json.loads(response.text)
         except Exception:
             time.sleep(api_backoff * attempt)
-    logging.error(f"DShield query failed for {ip_address}")
+    logging.error("DShield query failed for %s", ip_address)
     return {"ip": {"asname": "", "ascountry": ""}}
 
 
@@ -945,6 +952,8 @@ def uh_query(ip_address, uh_api):
     Returns:
         None. Side effects: writes ``uh_<ip>`` with the response JSON.
     """
+    if skip_enrich:
+        return
     uh_header = {'Auth-Key': uh_api}
     host = {'host': ip_address}
     url = "https://urlhaus-api.abuse.ch/v1/host/"
@@ -974,7 +983,7 @@ def uh_query(ip_address, uh_api):
             print(e)
             print("Exception hit for URLHaus query")
             time.sleep(api_backoff * attempt)
-    logging.error(f"URLHaus query failed for {ip_address}")
+    logging.error("URLHaus query failed for %s", ip_address)
 
 
 def read_uh_data(ip_address, urlhausapi):
@@ -992,7 +1001,7 @@ def read_uh_data(ip_address, urlhausapi):
     uh_path = cache_dir / ("uh_" + ip_address)
     if not uh_path.exists():
         uh_query(ip_address, urlhausapi)
-    uh_data = open(uh_path, 'r')
+    uh_data = open(uh_path, 'r', encoding='utf-8')
     tags = ""
     file = ""
     for eachline in uh_data:
@@ -1023,7 +1032,7 @@ def read_vt_data(hash, cache_dir: Path):
     Returns:
         Tuple ``(description, classification, first_submission, malicious)``.
     """
-    hash_info = open(cache_dir / hash, 'r')
+    hash_info = open(cache_dir / hash, 'r', encoding='utf-8')
     file = ""
     for each_time in hash_info:
         file += each_time
@@ -1062,6 +1071,8 @@ def spur_query(ip_address):
     Returns:
         None. Side effects: writes ``spur_<ip>.json`` to disk.
     """
+    if skip_enrich:
+        return
     spur_session.headers = {'Token': spurapi}
     # token = {'Token': api_spur}
     url = "https://api.spur.us/v2/context/" + ip_address
@@ -1091,7 +1102,7 @@ def spur_query(ip_address):
         except Exception:
             print("Exception hit for SPUR query")
             time.sleep(api_backoff * attempt)
-    logging.error(f"SPUR query failed for {ip_address}")
+    logging.error("SPUR query failed for %s", ip_address)
 
 
 def read_spur_data(ip_address):
@@ -1936,7 +1947,7 @@ def get_commands(data, session):
 initialize_database()
 
 if len(list_of_files) == 0:
-    quit()
+    sys.exit(0)
 
 if summarizedays:
     days = int(summarizedays)
@@ -1989,15 +2000,12 @@ for filename in list_of_files:
                     )
                     t_last = time.time()
     except EOFError:
-        logging.warning(f"Compressed file appears truncated; skipping: {filepath_str}")
+        logging.warning("Compressed file appears truncated; skipping: %s", filepath_str)
         processed_files += 1
         write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
         continue
     except Exception as e:
-        logging.error(
-            f"Error reading file {filepath_str}; skipping due to: {e}",
-            exc_info=True,
-        )
+        logging.error("Error reading file %s; skipping due to: %s", filepath_str, e, exc_info=True)
         processed_files += 1
         write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
         continue

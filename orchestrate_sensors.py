@@ -8,9 +8,12 @@ and writes to a shared central SQLite database with sensor tagging.
 import argparse
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime as dt
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -52,6 +55,9 @@ def build_cmd(processor: Path, db: str, sensor_cfg: dict, overrides: dict) -> li
     # Bulk-load flags
     if overrides.get("bulk_load"):
         cmd += ["--bulk-load"]
+    # Skip enrich flag
+    if overrides.get("skip_enrich"):
+        cmd += ["--skip-enrich"]
     if overrides.get("buffer_bytes"):
         cmd += ["--buffer-bytes", str(overrides["buffer_bytes"])]
 
@@ -62,7 +68,7 @@ def run_with_retries(
     cmd: list,
     max_retries: int = 2,
     base_sleep: float = 5.0,
-    status_file: Path | None = None,
+    status_file: Optional[Path] = None,
     poll_seconds: float = 0.0,
     extra_env: Optional[Dict[str, str]] = None,
 ) -> int:
@@ -79,41 +85,46 @@ def run_with_retries(
         print(f"[orchestrate] Running: {' '.join(cmd)} (attempt {attempt})")
         try:
             if status_file and poll_seconds > 0:
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=child_env)
-                try:
-                    while proc.poll() is None:
-                        time.sleep(poll_seconds)
-                        try:
-                            if status_file.exists():
-                                data = json.loads(status_file.read_text())
-                                total = data.get('total_files', 0)
-                                done = data.get('processed_files', 0)
-                                current = data.get('current_file', '')
-                                state = data.get('state', '')
-                                print(f"[status] {state} {done}/{total} {current}")
-                        except Exception:
-                            pass
-                    out, err = proc.communicate()
-                    if out:
-                        print(out)
-                    if err:
-                        print(err, file=sys.stderr)
-                    if proc.returncode == 0:
-                        return 0
-                except KeyboardInterrupt:
-                    proc.terminate()
-                    raise
+                with subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    env=child_env,
+                ) as proc:
+                    try:
+                        while proc.poll() is None:
+                            time.sleep(poll_seconds)
+                            try:
+                                if status_file.exists():
+                                    data = json.loads(status_file.read_text())
+                                    total = data.get('total_files', 0)
+                                    done = data.get('processed_files', 0)
+                                    current = data.get('current_file', '')
+                                    state = data.get('state', '')
+                                    print(f"[status] {state} {done}/{total} {current}")
+                            except Exception:
+                                pass
+                        out, err = proc.communicate()
+                        if out:
+                            print(out)
+                        if err:
+                            print(err, file=sys.stderr)
+                        if proc.returncode == 0:
+                            return 0
+                    except KeyboardInterrupt:
+                        proc.terminate()
+                        raise
             else:
-                result = subprocess.run(cmd, capture_output=True, text=True, env=child_env)
+                result = subprocess.run(cmd, capture_output=True, text=True, env=child_env, check=False)
                 if result.returncode == 0:
                     if result.stdout:
                         print(result.stdout)
                     if result.stderr:
                         print(result.stderr, file=sys.stderr)
                     return 0
-                else:
-                    print(result.stdout)
-                    print(result.stderr, file=sys.stderr)
+                print(result.stdout)
+                print(result.stderr, file=sys.stderr)
         except Exception as e:  # pragma: no cover
             print(f"[orchestrate] Exception: {e}", file=sys.stderr)
 
@@ -128,7 +139,8 @@ def run_with_retries(
 def prepare_env_for_sensor(sensor_cfg: dict) -> Dict[str, str]:
     """Resolve secret references and return environment variables for the child process.
 
-    Accepts both plain literals and secret reference schemes (env:, op://, file:, aws-sm://, vault://, sops://).
+    Accepts both plain literals and secret reference schemes
+    (env:, op://, file:, aws-sm://, vault://, sops://).
     """
     mapping = {
         "vtapi": "VT_API_KEY",
@@ -161,7 +173,12 @@ def main():
     ap.add_argument("--db", help="Override central DB path")
     ap.add_argument("--summarizedays", type=int, help="Override summarizedays for all sensors")
     ap.add_argument("--max-retries", type=int, default=2, help="Max retries per sensor (default: 2)")
-    ap.add_argument("--pause-seconds", type=float, default=10.0, help="Pause between sensors (default: 10s)")
+    ap.add_argument(
+        "--pause-seconds",
+        type=float,
+        default=10.0,
+        help="Pause between sensors (default: 10s)",
+    )
     ap.add_argument(
         "--status-poll-seconds",
         type=float,
@@ -169,13 +186,18 @@ def main():
         help="Poll status during runs (sec; 0=off)",
     )
     ap.add_argument("--bulk-load", action='store_true', help="Pass --bulk-load to processor for faster ingest")
+    ap.add_argument(
+        "--skip-enrich",
+        action='store_true',
+        help="Tell processor to skip enrichments (VT, DShield, URLhaus, SPUR)",
+    )
     ap.add_argument("--buffer-bytes", type=int, help="Override --buffer-bytes for processor")
     ap.add_argument("--days", type=int, help="Process last N days (overrides summarizedays)")
     ap.add_argument(
         "--date-range",
         nargs=2,
         metavar=("START", "END"),
-        help="Date range YYYY-MM-DD YYYY-MM-DD; stage only matching files",
+        help=("Date range YYYY-MM-DD YYYY-MM-DD; stage only matching files"),
     )
     ap.add_argument("--keep-staging", action='store_true', help="Keep staging directory used for date-range runs")
     args = ap.parse_args()
@@ -209,6 +231,7 @@ def main():
             "report_dir": global_cfg.get("report_dir"),
             "bulk_load": args.bulk_load,
             "buffer_bytes": args.buffer_bytes,
+            "skip_enrich": args.skip_enrich,
         }
 
         # Optional date-range staging
@@ -220,10 +243,7 @@ def main():
                 staging_base = Path(global_cfg.get("staging_base", "/mnt/dshield/data/temp/cowrieprocessor/staging"))
                 staging_dir = staging_base / sensor_cfg["name"] / f"{start}_{end}"
                 staging_dir.mkdir(parents=True, exist_ok=True)
-                import re
-
                 pat = re.compile(r".*(\d{4}-\d{2}-\d{2}).*")
-                from datetime import datetime as dt
 
                 start_d = dt.strptime(start, "%Y-%m-%d").date()
                 end_d = dt.strptime(end, "%Y-%m-%d").date()
@@ -242,8 +262,6 @@ def main():
                             try:
                                 dest.symlink_to(p)
                             except Exception:
-                                import shutil
-
                                 shutil.copy2(p, dest)
                         count += 1
                 if count == 0:
@@ -252,7 +270,8 @@ def main():
                 sensor_cfg["logpath"] = str(staging_dir)
                 overrides["summarizedays"] = count or 1
             except Exception as e:
-                print(f"[orchestrate] Failed to prepare staging for {sensor_cfg['name']}: {e}", file=sys.stderr)
+                msg = f"[orchestrate] Failed to prepare staging for {sensor_cfg['name']}: {e}"
+                print(msg, file=sys.stderr)
                 staging_dir = None
 
         # Build environment with secrets and command without secret flags
@@ -271,8 +290,6 @@ def main():
             failures += 1
         if staging_dir and not args.keep_staging:
             try:
-                import shutil
-
                 shutil.rmtree(staging_dir)
             except Exception:
                 pass

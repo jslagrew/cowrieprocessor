@@ -56,9 +56,8 @@ def vt_filescan(filename):
     _ = json.loads(response.text)
     if not os.path.exists("vtsubmissions"):
         os.mkdir("vtsubmissions")
-    file = open("vtsubmissions/files_" + filename, 'w')
-    file.write(response.text)
-    file.close()
+    with open("vtsubmissions/files_" + filename, 'w', encoding='utf-8') as out:
+        out.write(response.text)
 
     filehash = sha256sum(folderpath + filename)
     headers = {'Content-type': 'application/json', 'X-Apikey': vtapi}
@@ -71,9 +70,8 @@ def vt_filescan(filename):
     }
     response = requests.post(url, headers=headers, data=json.dumps(commentdata))
     _ = json.loads(response.text)
-    file = open("vtsubmissions/files_comment_" + filename, 'w')
-    file.write(response.text)
-    file.close()
+    with open("vtsubmissions/files_comment_" + filename, 'w', encoding='utf-8') as out:
+        out.write(response.text)
 
 
 def sha256sum(filename):

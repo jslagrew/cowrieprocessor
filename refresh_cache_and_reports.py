@@ -302,7 +302,8 @@ def refresh_reports(db_path: str, args):
                     date_str,
                     '--db',
                     db_path,
-                ]
+                ],
+                check=False,
             )
 
     # Weekly covering last hot_weekly_days
@@ -315,7 +316,10 @@ def refresh_reports(db_path: str, args):
             iso_year, iso_week, _ = curr.isocalendar()
             key = f"{iso_year}-W{iso_week:02d}"
             if key not in seen:
-                subprocess.run([sys.executable, 'es_reports.py', 'weekly', '--week', key, '--db', db_path])
+                subprocess.run(
+                    [sys.executable, 'es_reports.py', 'weekly', '--week', key, '--db', db_path],
+                    check=False,
+                )
                 seen.add(key)
             curr += timedelta(days=1)
 
@@ -327,7 +331,10 @@ def refresh_reports(db_path: str, args):
             d = datetime.utcnow() - timedelta(days=i)
             months.add(d.strftime('%Y-%m'))
         for ym in sorted(months):
-            subprocess.run([sys.executable, 'es_reports.py', 'monthly', '--month', ym, '--db', db_path])
+            subprocess.run(
+                [sys.executable, 'es_reports.py', 'monthly', '--month', ym, '--db', db_path],
+                check=False,
+            )
 
 
 def main():

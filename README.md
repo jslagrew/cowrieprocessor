@@ -154,6 +154,7 @@ python process_cowrie.py --logpath /path/to/cowrie/logs --email your.email@examp
 - `--temp-dir`: Temp path override (default: `<data-dir>/temp/cowrieprocessor`)
 - `--log-dir`: Logs path override (default: `<data-dir>/logs`)
 - `--bulk-load`: Enable SQLite bulk load mode (relax PRAGMAs, defer commits; final commit at end)
+- `--skip-enrich`: Skip all external enrichments (VT, DShield, URLhaus, SPUR) for faster ingest
 - `--buffer-bytes`: Read buffer size in bytes for compressed log files (default: 1048576)
 
 ### Example
@@ -290,6 +291,7 @@ Data locations:
 
 Performance tips for backfill:
 - Use `--bulk-load` to speed DB writes (synchronous=OFF, in-memory temp store, larger cache) and commit once at end.
+- Use `--skip-enrich` to skip API calls on the initial ingest, then run `refresh_cache_and_reports.py` to backfill caches and ES reports.
 - Increase `--buffer-bytes` (e.g., 4–16 MB) to speed bz2/gz streaming.
 - Consider disabling enrichments on the initial pass, then run the refresh utility.
 
@@ -426,6 +428,7 @@ _Will process the last two days of cowrie data, enrich with URLHaus and VirusTot
   - `--days N` to override summarizedays across sensors (process last N files/days)
   - `--date-range YYYY-MM-DD YYYY-MM-DD` to stage a subset of files into a temporary directory and run only that range
   - `--bulk-load` to enable processor bulk-load mode for the run
+  - `--skip-enrich` to instruct the processor to skip enrichments during orchestrated runs
   - `--buffer-bytes` to increase compressed read buffers
   - `--status-poll-seconds` to print progress from status files during the run
 
