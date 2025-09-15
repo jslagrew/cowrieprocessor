@@ -87,6 +87,8 @@ python process_cowrie.py --logpath /path/to/cowrie/logs --email your.email@examp
 - `--cache-dir`: Cache path override (default: `<data-dir>/cache/cowrieprocessor`)
 - `--temp-dir`: Temp path override (default: `<data-dir>/temp/cowrieprocessor`)
 - `--log-dir`: Logs path override (default: `<data-dir>/logs`)
+- `--bulk-load`: Enable SQLite bulk load mode (relax PRAGMAs, defer commits; final commit at end)
+- `--buffer-bytes`: Read buffer size in bytes for compressed log files (default: 1048576)
 
 ### Example
 
@@ -204,7 +206,7 @@ summarizedays = 1
 
 Run:
 ```bash
-python orchestrate_sensors.py --config sensors.toml --max-retries 3 --pause-seconds 10
+python orchestrate_sensors.py --config sensors.toml --max-retries 3 --pause-seconds 10 --status-poll-seconds 60
 ```
 
 Reliability:
@@ -219,6 +221,11 @@ Data locations:
 - Caches (VT, URLhaus, SPUR, etc.) and temp files are written under `<data-dir>`
   - Defaults: `/mnt/dshield/data/cache/cowrieprocessor` and `/mnt/dshield/data/temp/cowrieprocessor`
   - Override with `--cache-dir` and `--temp-dir`
+
+Performance tips for backfill:
+- Use `--bulk-load` to speed DB writes (synchronous=OFF, in-memory temp store, larger cache) and commit once at end.
+- Increase `--buffer-bytes` (e.g., 4–16 MB) to speed bz2/gz streaming.
+- Consider disabling enrichments on the initial pass, then run the refresh utility.
 
 ## Refreshing Cache and Recent Reports
 
@@ -349,3 +356,18 @@ python3 process_cowrie.py --email <my email address> --vtapi <vt api key> --dbxk
 ```
   
 _Will process the last two days of cowrie data, enrich with URLHaus and VirusTotal data and upload to Dropbox using OAuth workflow and Refresh Token for full automation._
+- Orchestrator bulk control:
+  - `--days N` to override summarizedays across sensors (process last N files/days)
+  - `--date-range YYYY-MM-DD YYYY-MM-DD` to stage a subset of files into a temporary directory and run only that range
+  - `--bulk-load` to enable processor bulk-load mode for the run
+  - `--buffer-bytes` to increase compressed read buffers
+  - `--status-poll-seconds` to print progress from status files during the run
+
+Status dashboard:
+```bash
+# One-shot view
+python status_dashboard.py --status-dir /mnt/dshield/data/logs/status --oneshot
+
+# Live dashboard (refresh every 2s)
+python status_dashboard.py --status-dir /mnt/dshield/data/logs/status --refresh 2
+```

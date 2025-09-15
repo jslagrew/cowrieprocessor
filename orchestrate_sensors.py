@@ -6,6 +6,7 @@ and writes to a shared central SQLite database with sensor tagging.
 """
 
 import argparse
+import json
 import subprocess
 import sys
 import time
@@ -43,26 +44,59 @@ def build_cmd(processor: Path, db: str, sensor_cfg: dict, overrides: dict) -> li
     if report_dir:
         cmd += ["--output-dir", str(report_dir)]
 
+    # Bulk-load flags
+    if overrides.get("bulk_load"):
+        cmd += ["--bulk-load"]
+    if overrides.get("buffer_bytes"):
+        cmd += ["--buffer-bytes", str(overrides["buffer_bytes"])]
+
     return cmd
 
 
-def run_with_retries(cmd: list, max_retries: int = 2, base_sleep: float = 5.0) -> int:
-    """Run a command with retry and linear backoff."""
+def run_with_retries(cmd: list, max_retries: int = 2, base_sleep: float = 5.0,
+                     status_file: Path | None = None, poll_seconds: float = 0.0) -> int:
+    """Run a command with retry and optional status polling."""
     attempt = 0
     while True:
         attempt += 1
         print(f"[orchestrate] Running: {' '.join(cmd)} (attempt {attempt})")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode == 0:
-                if result.stdout:
-                    print(result.stdout)
-                if result.stderr:
-                    print(result.stderr, file=sys.stderr)
-                return 0
+            if status_file and poll_seconds > 0:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                try:
+                    while proc.poll() is None:
+                        time.sleep(poll_seconds)
+                        try:
+                            if status_file.exists():
+                                data = json.loads(status_file.read_text())
+                                total = data.get('total_files', 0)
+                                done = data.get('processed_files', 0)
+                                current = data.get('current_file', '')
+                                state = data.get('state', '')
+                                print(f"[status] {state} {done}/{total} {current}")
+                        except Exception:
+                            pass
+                    out, err = proc.communicate()
+                    if out:
+                        print(out)
+                    if err:
+                        print(err, file=sys.stderr)
+                    if proc.returncode == 0:
+                        return 0
+                except KeyboardInterrupt:
+                    proc.terminate()
+                    raise
             else:
-                print(result.stdout)
-                print(result.stderr, file=sys.stderr)
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    if result.stdout:
+                        print(result.stdout)
+                    if result.stderr:
+                        print(result.stderr, file=sys.stderr)
+                    return 0
+                else:
+                    print(result.stdout)
+                    print(result.stderr, file=sys.stderr)
         except Exception as e:  # pragma: no cover
             print(f"[orchestrate] Exception: {e}", file=sys.stderr)
 
@@ -84,6 +118,22 @@ def main():
     ap.add_argument("--summarizedays", type=int, help="Override summarizedays for all sensors")
     ap.add_argument("--max-retries", type=int, default=2, help="Max retries per sensor (default: 2)")
     ap.add_argument("--pause-seconds", type=float, default=10.0, help="Pause between sensors (default: 10s)")
+    ap.add_argument(
+        "--status-poll-seconds",
+        type=float,
+        default=60.0,
+        help="Poll status during runs (sec; 0=off)",
+    )
+    ap.add_argument("--bulk-load", action='store_true', help="Pass --bulk-load to processor for faster ingest")
+    ap.add_argument("--buffer-bytes", type=int, help="Override --buffer-bytes for processor")
+    ap.add_argument("--days", type=int, help="Process last N days (overrides summarizedays)")
+    ap.add_argument(
+        "--date-range",
+        nargs=2,
+        metavar=("START", "END"),
+        help="Date range YYYY-MM-DD YYYY-MM-DD; stage only matching files",
+    )
+    ap.add_argument("--keep-staging", action='store_true', help="Keep staging directory used for date-range runs")
     args = ap.parse_args()
 
     cfg = load_config(Path(args.config))
@@ -96,6 +146,8 @@ def main():
     # Determine DB
     db = args.db or global_cfg.get("db") or "../cowrieprocessor.sqlite"
     processor = Path(args.processor)
+    # Determine log dir for status files
+    log_dir = Path(global_cfg.get("log_dir") or "/mnt/dshield/data/logs")
 
     # Filter sensors if requested
     if args.only:
@@ -108,11 +160,66 @@ def main():
             print(f"[orchestrate] Skipping incomplete sensor entry: {sensor_cfg}")
             continue
         # Per-sensor overrides fall back to global in config
-        overrides = {"summarizedays": args.summarizedays, "report_dir": global_cfg.get("report_dir")}
+        overrides = {
+            "summarizedays": args.days or args.summarizedays,
+            "report_dir": global_cfg.get("report_dir"),
+            "bulk_load": args.bulk_load,
+            "buffer_bytes": args.buffer_bytes,
+        }
+
+        # Optional date-range staging
+        staging_dir = None
+        if args.date_range:
+            start, end = args.date_range
+            try:
+                logpath = Path(sensor_cfg["logpath"])  # original
+                staging_base = Path(global_cfg.get("staging_base", "/mnt/dshield/data/temp/cowrieprocessor/staging"))
+                staging_dir = staging_base / sensor_cfg["name"] / f"{start}_{end}"
+                staging_dir.mkdir(parents=True, exist_ok=True)
+                import re
+                pat = re.compile(r".*(\d{4}-\d{2}-\d{2}).*")
+                from datetime import datetime as dt
+                start_d = dt.strptime(start, "%Y-%m-%d").date()
+                end_d = dt.strptime(end, "%Y-%m-%d").date()
+                count = 0
+                for p in sorted(logpath.iterdir()):
+                    m = pat.match(p.name)
+                    if not m:
+                        continue
+                    try:
+                        d = dt.strptime(m.group(1), "%Y-%m-%d").date()
+                    except Exception:
+                        continue
+                    if start_d <= d <= end_d:
+                        dest = staging_dir / p.name
+                        if not dest.exists():
+                            try:
+                                dest.symlink_to(p)
+                            except Exception:
+                                import shutil
+                                shutil.copy2(p, dest)
+                        count += 1
+                if count == 0:
+                    print(f"[orchestrate] No files matched date range for {sensor_cfg['name']}")
+                sensor_cfg = dict(sensor_cfg)
+                sensor_cfg["logpath"] = str(staging_dir)
+                overrides["summarizedays"] = count or 1
+            except Exception as e:
+                print(f"[orchestrate] Failed to prepare staging for {sensor_cfg['name']}: {e}", file=sys.stderr)
+                staging_dir = None
+
         cmd = build_cmd(processor, db, sensor_cfg, overrides)
-        rc = run_with_retries(cmd, max_retries=args.max_retries)
+        status_path = log_dir / 'status' / f"{sensor_cfg['name']}.json"
+        rc = run_with_retries(cmd, max_retries=args.max_retries, base_sleep=5.0,
+                              status_file=status_path, poll_seconds=args.status_poll_seconds)
         if rc != 0:
             failures += 1
+        if staging_dir and not args.keep_staging:
+            try:
+                import shutil
+                shutil.rmtree(staging_dir)
+            except Exception:
+                pass
         if i < len(sensors) - 1:
             time.sleep(args.pause_seconds)
 

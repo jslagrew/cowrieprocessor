@@ -13,6 +13,7 @@ import bz2
 import collections
 import datetime
 import gzip
+import io
 import json
 import logging
 import os
@@ -112,6 +113,10 @@ parser.add_argument('--temp-dir', dest='temp_dir', type=str,
     help='Temp directory (default: <data-dir>/temp/cowrieprocessor)')
 parser.add_argument('--log-dir', dest='log_dir', type=str,
     help='Logs directory (default: <data-dir>/logs)')
+parser.add_argument('--bulk-load', dest='bulk_load', action='store_true',
+    help='Enable SQLite bulk load mode (defer commits, relaxed PRAGMAs)')
+parser.add_argument('--buffer-bytes', dest='buffer_bytes', type=int, default=1048576,
+    help='Read buffer size in bytes for compressed log files (default: 1048576)')
  
 parser.add_argument('--api-timeout', dest='api_timeout', type=int, default=15,
     help='HTTP timeout in seconds for external APIs (default: 15)')
@@ -231,6 +236,44 @@ run_dir = base_output_dir / hostname / date
 run_dir.mkdir(parents=True, exist_ok=True)
 os.chdir(run_dir)
 
+# Status file support
+status_base = Path(getattr(args, 'log_dir', '/mnt/dshield/data/logs')) / 'status'
+try:
+    status_base.mkdir(parents=True, exist_ok=True)
+except Exception:
+    logging.error("Failed creating status directory", exc_info=True)
+status_file = Path(args.status_file) if getattr(args, 'status_file', None) else (status_base / f"{hostname}.json")
+status_interval = max(5, int(getattr(args, 'status_interval', 30)))
+_last_status_ts = 0.0
+
+def write_status(state: str, total_files: int, processed_files: int, current_file: str = ""):
+    """Write JSON status to the status file at most every status_interval seconds."""
+    import json as _json
+    global _last_status_ts
+    now = time.time()
+    if (now - _last_status_ts) < status_interval and state != 'completed':
+        return
+    _last_status_ts = now
+    payload = {
+        'sensor': hostname,
+        'pid': os.getpid(),
+        'state': state,
+        'total_files': total_files,
+        'processed_files': processed_files,
+        'current_file': current_file,
+        'db_path': os.fspath(Path(args.db)),
+        'run_dir': os.fspath(run_dir),
+        'timestamp': int(now),
+    }
+    try:
+        tmp = status_file.with_suffix('.tmp')
+        with open(tmp, 'w', encoding='utf-8') as f:
+            f.write(_json.dumps(payload))
+        tmp.replace(status_file)
+    except Exception:
+        # Non-fatal
+        pass
+
 data = []
 attack_count = 0
 number_of_commands = []
@@ -243,10 +286,12 @@ uncommon_command_counts = set()
 path_entries = sorted(Path(log_location).iterdir(), key=os.path.getmtime)
 
 list_of_files = []
-
 for each_file in path_entries:
     if ".json" in each_file.name:
         list_of_files.append(each_file.name)
+total_files = len(list_of_files)
+processed_files = 0
+write_status(state='starting', total_files=total_files, processed_files=processed_files)
 
 con = sqlite3.connect(args.db)
 # Improve concurrency for central DB usage
@@ -255,6 +300,21 @@ try:
     con.execute('PRAGMA busy_timeout=5000')
 except Exception:
     pass
+
+# Bulk load mode: relax PRAGMAs and defer commits
+orig_commit = con.commit
+bulk_load = bool(getattr(args, 'bulk_load', False))
+if bulk_load:
+    try:
+        con.execute('PRAGMA synchronous=OFF')
+        con.execute('PRAGMA temp_store=MEMORY')
+        con.execute('PRAGMA cache_size=-200000')  # ~200MB cache
+        con.execute('PRAGMA mmap_size=268435456') # 256MB if supported
+    except Exception:
+        logging.warning("Failed to set some bulk-load PRAGMAs", exc_info=True)
+    def _noop_commit():
+        return None
+    con.commit = _noop_commit  # type: ignore[method-assign]
 
 def initialize_database():
     """Create and evolve the local SQLite schema if needed.
@@ -413,6 +473,19 @@ def initialize_database():
         con.commit()        
     except Exception:
         logging.error("Failure adding table columns, likely because they already exist...")        
+    # Create helpful indexes to speed reporting queries
+    try:
+        cur.execute('''CREATE INDEX IF NOT EXISTS idx_sessions_hostname_ts ON sessions(hostname, timestamp)''')
+        cur.execute('''CREATE INDEX IF NOT EXISTS idx_sessions_ts ON sessions(timestamp)''')
+        cur.execute('''CREATE INDEX IF NOT EXISTS idx_sessions_session ON sessions(session)''')
+        cur.execute('''CREATE INDEX IF NOT EXISTS idx_files_session ON files(session)''')
+        cur.execute('''CREATE INDEX IF NOT EXISTS idx_files_hash ON files(hash)''')
+        cur.execute('''CREATE INDEX IF NOT EXISTS idx_commands_session ON commands(session)''')
+        cur.execute('''CREATE INDEX IF NOT EXISTS idx_commands_ts ON commands(timestamp)''')
+        con.commit()
+        logging.info("Database indexes ensured (IF NOT EXISTS)")
+    except Exception:
+        logging.error("Failure creating indexes (may already exist)")
     try:
         cur.execute('''
             CREATE TABLE IF NOT EXISTS indicator_cache(
@@ -1879,16 +1952,22 @@ if (summarizedays):
 
 def open_json_lines(path: str):
     """Open a JSONL file (supports .bz2 and .gz) for text reading."""
+    bufsize = int(getattr(args, 'buffer_bytes', 1048576))
     if path.endswith('.bz2'):
-        return bz2.open(path, 'rt', encoding='utf-8', errors='replace')
+        bz2_raw = bz2.BZ2File(path, 'rb')
+        bz2_buf = io.BufferedReader(bz2_raw, buffer_size=bufsize)
+        return io.TextIOWrapper(bz2_buf, encoding='utf-8', errors='replace')
     if path.endswith('.gz'):
-        return gzip.open(path, 'rt', encoding='utf-8', errors='replace')
+        gz_raw = gzip.GzipFile(filename=path, mode='rb')
+        gz_buf = io.BufferedReader(gz_raw, buffer_size=bufsize)
+        return io.TextIOWrapper(gz_buf, encoding='utf-8', errors='replace')
     return open(path, 'r', encoding='utf-8', errors='replace')
 
 for filename in list_of_files:
     file_path_obj = Path(log_location) / filename
     filepath_str = os.fspath(file_path_obj)
     print("Processing file " + filepath_str)
+    write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
     try:
         with open_json_lines(filepath_str) as file:
             for each_line in file:
@@ -1902,13 +1981,19 @@ for filename in list_of_files:
         logging.warning(
             f"Compressed file appears truncated; skipping: {filepath_str}"
         )
+        processed_files += 1
+        write_status(state='reading', total_files=total_files, processed_files=processed_files)
         continue
     except Exception as e:
         logging.error(
             f"Error reading file {filepath_str}; skipping due to: {e}",
             exc_info=True,
         )
+        processed_files += 1
+        write_status(state='reading', total_files=total_files, processed_files=processed_files)
         continue
+    processed_files += 1
+    write_status(state='reading', total_files=total_files, processed_files=processed_files)
 
 vt_session = requests.session()
 dshield_session = requests.session()
@@ -2005,6 +2090,14 @@ vt_session.close()
 dshield_session.close()
 uh_session.close()
 spur_session.close()
+
+# Final commit if bulk-load deferred commits
+try:
+    if bulk_load:
+        con.commit = orig_commit  # type: ignore[method-assign]
+        orig_commit()
+except Exception:
+    logging.error("Final commit failed in bulk-load mode", exc_info=True)
 
 summarystring = "{:>40s}  {:10s}".format("Total Number of Attacks:", str(attack_count)) + "\n"
 summarystring += "{:>40s}  {:10s}".format("Most Common Number of Commands:", str(number_of_commands[0])) + "\n"

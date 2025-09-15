@@ -103,6 +103,15 @@ All notable changes to the Cowrie Processor script will be documented in this fi
 - Configurable data directories:
   - `--data-dir` (default `/mnt/dshield/data`), `--cache-dir`, `--temp-dir`, and `--log-dir` to control caches, temp files, and logs.
   - Caches (VT/URLhaus/SPUR) now persist under `<data-dir>/cache/cowrieprocessor` by default.
+- Automatic SQLite indexes to speed reporting:
+  - `sessions(hostname, timestamp)`, `sessions(timestamp)`, `sessions(session)`
+  - `files(session)`, `files(hash)`
+  - `commands(session)`, `commands(timestamp)`
+- Bulk-load support in processor (`--bulk-load`) with deferred commit and relaxed PRAGMAs; configurable `--buffer-bytes` for compressed readers.
+- Live status reporting:
+  - Processor writes JSON status files under `<log-dir>/status/<sensor>.json`.
+  - Orchestrator can poll status during runs (`--status-poll-seconds`).
+  - New `status_dashboard.py` renders a consolidated progress view.
 
 ### Changed
 - README documentation expanded: central DB usage, ES reporting, write aliases, and orchestration.
@@ -111,6 +120,7 @@ All notable changes to the Cowrie Processor script will be documented in this fi
 - Dropbox DB upload now reads from `--db` path reliably.
 - Process compressed logs (`.bz2`, `.gz`) and skip malformed lines to avoid decode crashes.
 - Logs written under `<data-dir>/logs` by default (overridable with `--log-dir`).
+- Orchestrator enhancements: `--days`, `--date-range` (staging), `--bulk-load`, and `--buffer-bytes`.
 
 ### Notes
 - Historical merge is not required; rebuild from retained raw logs is recommended.
