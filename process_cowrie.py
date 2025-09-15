@@ -28,7 +28,7 @@ import dropbox
 import requests
 
 # Default logs directory (can be overridden later via --log-dir)
-default_logs_dir = Path('/mnt/dshield/data/logs')
+default_logs_dir = Path('../')
 try:
     default_logs_dir.mkdir(parents=True, exist_ok=True)
 except Exception:
