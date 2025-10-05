@@ -1,4 +1,8 @@
 # cowrieprocessor
+This project is still supported, but not being developed for new features. Check out the following repository for the next generation of this tool with many more features:
+
+https://github.com/datagen24/cowrieprocessor
+
 The initial purpose of this application is helps simplify command input and file download data from DShield Honeypots (https://github.com/DShield-ISC/dshield). This Python applications is designed to process and summarize Cowrie logs (https://github.com/cowrie/cowrie). 
 
 ![Snag_1690ca6](https://user-images.githubusercontent.com/82918323/169907140-5a53eb8d-26ae-4fa5-82a2-2bf7782311fa.png)
