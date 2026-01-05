@@ -1231,16 +1231,28 @@ elif (session_id):
         command_count = get_command_total(each_session, data)
         #if command_count != number_of_commands[0]:
         if command_count in abnormal_command_counts:
-            abnormal_attacks.add(each_session)
-            uncommon_command_counts.add(each_session)
+            try:
+                abnormal_attacks.add(each_session) # error with TypeError: unhashable type: 'set
+            except:
+                logging.error(f"Failure adding session for abnormal attacks {each_session}")
+            try:
+                uncommon_command_counts.add(each_session)
+            except:
+                logging.error(f"Failure adding session for uncommon commands {each_session}")
 
 elif (tty_file):
     for each_session in session_id:
         command_count = get_command_total(each_session, data)
         #if command_count != number_of_commands[0]:
         if command_count in abnormal_command_counts:
-            abnormal_attacks.add(each_session)
-            uncommon_command_counts.add(each_session)
+            try:
+                abnormal_attacks.add(each_session) # error with TypeError: unhashable type: 'set
+            except:
+                logging.error(f"Failure adding session for abnormal attacks {each_session}")
+            try:
+                uncommon_command_counts.add(each_session)
+            except:
+                logging.error(f"Failure adding session for uncommon commands {each_session}")
 
 
 elif (download_file):
@@ -1248,8 +1260,14 @@ elif (download_file):
         command_count = get_command_total(each_session, data)
         #if command_count != number_of_commands[0]:
         if command_count in abnormal_command_counts:
-            abnormal_attacks.add(each_session)
-            uncommon_command_counts.add(each_session)
+            try:
+                abnormal_attacks.add(each_session) # error with TypeError: unhashable type: 'set
+            except:
+                logging.error(f"Failure adding session for abnormal attacks {each_session}")
+            try:
+                uncommon_command_counts.add(each_session)
+            except:
+                logging.error(f"Failure adding session for uncommon commands {each_session}")
 
 
 
