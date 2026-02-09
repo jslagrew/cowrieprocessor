@@ -4,6 +4,7 @@ import json
 from operator import contains
 import os
 import requests
+from requests.exceptions import ReadTimeout
 from os.path import exists
 import time
 import re
@@ -355,9 +356,28 @@ def vt_filescan(hash):
     file.write(response.text)
     file.close()
 
+def fetch_url_with_retries(url, headers, max_retries=2, timeout=5):
+    for attempt in range(max_retries + 1):
+        try:
+            response = requests.get(url, headers=headers, timeout=timeout)
+            # If successful, return the response and break the loop
+            return response
+        except ReadTimeout as e:
+            logging.error(f"Read Timeout on attempt {attempt + 1}. Retrying...")
+            if attempt == max_retries:
+                logging.error(f"Max retries reached for URL: '{url}'. Sleeping two seconds and trying again.")
+                raise e
+            time.sleep(2) # Wait for a couple of seconds before retrying
+        except requests.exceptions.RequestException as e:
+            # Handle other requests exceptions (e.g., ConnectionError)
+            logging.error(f"An unexpected error occurred: {e}")
+            return ""
+    return None
+
 def dshield_query(ip_address):
     headers = {"User-Agent": "DShield Research Query by " + email}
-    response = requests.get("https://www.dshield.org/api/ip/" + ip_address + "?json", headers=headers)
+    #response = requests.get("https://www.dshield.org/api/ip/" + ip_address + "?json", headers=headers)
+    response = fetch_url_with_retries("https://www.dshield.org/api/ip/" + ip_address + "?json", headers, 4, 15)
     try:
         json_data = json.loads(response.text)
     except:
