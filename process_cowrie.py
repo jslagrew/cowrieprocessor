@@ -233,8 +233,11 @@ def get_connected_sessions(data):
     logging.info("Extracting unique sessions...")
     sessions = set()
     for each_entry in data:
-        if each_entry['eventid'] == "cowrie.login.success": 
+        if each_entry['eventid'] == "cowrie.login.success":
+            logging.DEBUG(f"Adding successfully authenticated Cowrie session: {each_entry['session']}") 
             sessions.add(each_entry['session'])
+        else:
+            logging.DEBUG(f"Ignoring unsuccessfully authenticated Cowrie session: {each_entry['session']}")
     return sessions
 
 def get_session_id(data, type, match):
@@ -257,6 +260,13 @@ def get_session_id(data, type, match):
                     sessions.add(each_entry['session'])
             if ("ttylog" in each_entry):
                 if ("src_ip" in each_entry):
+                    sessions.add(each_entry['session'])
+        # Fall back to login.success sessions if no shasum/ttylog entries exist
+        # (newer Cowrie logs may not have interactive sessions or file downloads)
+        if not sessions:
+            logging.info("No shasum/ttylog sessions found; falling back to login.success sessions")
+            for each_entry in data:
+                if each_entry.get('eventid') == "cowrie.login.success":
                     sessions.add(each_entry['session'])
     return sessions
 
@@ -1301,7 +1311,8 @@ uh_session.close()
 spur_session.close()
 
 summarystring = "{:>40s}  {:10s}".format("Total Number of Attacks:", str(attack_count)) + "\n"
-summarystring += "{:>40s}  {:10s}".format("Most Common Number of Commands:", str(number_of_commands[0])) + "\n"
+most_common_cmds = str(number_of_commands[0]) if number_of_commands else "N/A"
+summarystring += "{:>40s}  {:10s}".format("Most Common Number of Commands:", most_common_cmds) + "\n"
 summarystring += "\n"
 summarystring += "{:>40s}  {:10s}".format("Number of Commands", "Times Seen") + "\n"
 summarystring += "{:>40s}  {:10s}".format("------------------", "----------") + "\n"
