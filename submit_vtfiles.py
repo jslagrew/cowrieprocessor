@@ -35,7 +35,7 @@ SKIP_FILE_TYPE_SUBSTRINGS = [
 # rather than a malware sample (checked as a fallback when the magic-byte
 # description doesn't catch it, e.g. for oddly-formed key files).
 SKIP_CONTENT_MARKERS = [
-    b">> authorized_keys",
+    b"ssh-rsa ",
 ]
 
 def get_file_type(full_path):
