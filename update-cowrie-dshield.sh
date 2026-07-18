@@ -1,3 +1,4 @@
+```bash
 #!/usr/bin/env bash
 
 set -euo pipefail
@@ -16,7 +17,7 @@ if [[ ! -f "$DSHIELD_INI" ]]; then
 fi
 
 # Read a setting from dshield.ini.
-# Matches lines such as:
+# Supports formatting such as:
 # userid = 123456
 # userid=123456
 get_ini_value() {
@@ -38,12 +39,12 @@ get_ini_value() {
                 gsub(/^[[:space:]]+/, "", value)
                 gsub(/[[:space:]]+$/, "", value)
 
-                # Remove surrounding double quotes.
+                # Remove matching surrounding double quotes.
                 if (value ~ /^".*"$/) {
                     value = substr(value, 2, length(value) - 2)
                 }
 
-                # Remove surrounding single quotes.
+                # Remove matching surrounding single quotes.
                 if (value ~ /^\047.*\047$/) {
                     value = substr(value, 2, length(value) - 2)
                 }
@@ -68,15 +69,7 @@ if [[ -z "$APIKEY_VALUE" ]]; then
     exit 1
 fi
 
-# Prevent values from interfering with awk replacement processing.
-escape_awk_value() {
-    printf '%s' "$1" | sed 's/\\/\\\\/g'
-}
-
-USERID_VALUE="$(escape_awk_value "$USERID_VALUE")"
-APIKEY_VALUE="$(escape_awk_value "$APIKEY_VALUE")"
-
-TMP_FILE="$(mktemp)"
+TMP_FILE="$(mktemp "${COWRIE_CFG}.tmp.XXXXXX")"
 BACKUP_FILE="${COWRIE_CFG}.bak.$(date +%Y%m%d_%H%M%S)"
 
 cleanup() {
@@ -85,68 +78,139 @@ cleanup() {
 
 trap cleanup EXIT
 
+# Process both the [output_dshield] and [honeypot] sections.
+set +e
+
 awk \
     -v new_userid="$USERID_VALUE" \
     -v new_auth_key="$APIKEY_VALUE" '
-    function add_missing_settings() {
-        if (!have_enabled) {
+    function finish_output_dshield() {
+        if (!output_have_enabled) {
             print "enabled = true"
         }
 
-        if (!have_userid) {
+        if (!output_have_userid) {
             print "userid = " new_userid
         }
 
-        if (!have_auth_key) {
+        if (!output_have_auth_key) {
             print "auth_key = " new_auth_key
         }
 
-        if (!have_batch_size) {
+        if (!output_have_batch_size) {
             print "batch_size = 100"
         }
     }
 
-    /^[[:space:]]*\[output_dshield\][[:space:]]*$/ {
-        in_section = 1
-        found_section = 1
+    function finish_honeypot() {
+        if (!honeypot_have_auth_class) {
+            print "auth_class = AuthRandom"
+        }
 
-        have_enabled = 0
-        have_userid = 0
-        have_auth_key = 0
-        have_batch_size = 0
+        if (!honeypot_have_auth_parameters) {
+            print "auth_class_parameters = 2, 5, 10"
+        }
+    }
+
+    function finish_current_section() {
+        if (in_output_dshield) {
+            finish_output_dshield()
+            in_output_dshield = 0
+        }
+
+        if (in_honeypot) {
+            finish_honeypot()
+            in_honeypot = 0
+        }
+    }
+
+    # Detect section headers.
+    /^[[:space:]]*\[[^]]+\][[:space:]]*$/ {
+        finish_current_section()
+
+        if ($0 ~ /^[[:space:]]*\[output_dshield\][[:space:]]*$/) {
+            in_output_dshield = 1
+            found_output_dshield = 1
+
+            output_have_enabled = 0
+            output_have_userid = 0
+            output_have_auth_key = 0
+            output_have_batch_size = 0
+        }
+
+        if ($0 ~ /^[[:space:]]*\[honeypot\][[:space:]]*$/) {
+            in_honeypot = 1
+            found_honeypot = 1
+
+            honeypot_have_auth_class = 0
+            honeypot_have_auth_parameters = 0
+        }
 
         print
         next
     }
 
-    in_section && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ {
-        add_missing_settings()
-        in_section = 0
-        print
-        next
-    }
-
-    in_section && /^[[:space:]]*enabled[[:space:]]*=/ {
+    # Update [output_dshield].
+    in_output_dshield &&
+    /^[[:space:]]*enabled[[:space:]]*=/ {
         print "enabled = true"
-        have_enabled = 1
+        output_have_enabled = 1
         next
     }
 
-    in_section && /^[[:space:]]*userid[[:space:]]*=/ {
+    in_output_dshield &&
+    /^[[:space:]]*userid[[:space:]]*=/ {
         print "userid = " new_userid
-        have_userid = 1
+        output_have_userid = 1
         next
     }
 
-    in_section && /^[[:space:]]*auth_key[[:space:]]*=/ {
+    in_output_dshield &&
+    /^[[:space:]]*auth_key[[:space:]]*=/ {
         print "auth_key = " new_auth_key
-        have_auth_key = 1
+        output_have_auth_key = 1
         next
     }
 
-    in_section && /^[[:space:]]*batch_size[[:space:]]*=/ {
+    in_output_dshield &&
+    /^[[:space:]]*batch_size[[:space:]]*=/ {
         print "batch_size = 100"
-        have_batch_size = 1
+        output_have_batch_size = 1
+        next
+    }
+
+    # Comment active settings in [honeypot].
+    # Already-commented lines do not match and are preserved unchanged.
+    in_honeypot &&
+    /^[[:space:]]*data_path[[:space:]]*=/ {
+        print "# " $0
+        next
+    }
+
+    in_honeypot &&
+    /^[[:space:]]*filesystem[[:space:]]*=/ {
+        print "# " $0
+        next
+    }
+
+    in_honeypot &&
+    /^[[:space:]]*processes[[:space:]]*=/ {
+        print "# " $0
+        next
+    }
+
+    # Update authentication settings in [honeypot].
+    in_honeypot &&
+    /^[[:space:]]*auth_class[[:space:]]*=/ {
+        print "auth_class = AuthRandom"
+        honeypot_have_auth_class = 1
+        next
+    }
+
+    in_honeypot &&
+    /^[[:space:]]*auth_class_parameters[[:space:]]*=/ {
+        print "auth_class_parameters = 2, 5, 10"
+        honeypot_have_auth_parameters = 1
         next
     }
 
@@ -155,27 +219,34 @@ awk \
     }
 
     END {
-        if (in_section) {
-            add_missing_settings()
+        finish_current_section()
+
+        if (!found_output_dshield) {
+            exit 20
         }
 
-        if (!found_section) {
-            exit 20
+        if (!found_honeypot) {
+            exit 21
         }
     }
 ' "$COWRIE_CFG" > "$TMP_FILE"
 
 AWK_STATUS=$?
 
+set -e
+
 if [[ $AWK_STATUS -eq 20 ]]; then
     echo "ERROR: [output_dshield] was not found in $COWRIE_CFG" >&2
+    exit 1
+elif [[ $AWK_STATUS -eq 21 ]]; then
+    echo "ERROR: [honeypot] was not found in $COWRIE_CFG" >&2
     exit 1
 elif [[ $AWK_STATUS -ne 0 ]]; then
     echo "ERROR: Failed to process $COWRIE_CFG" >&2
     exit "$AWK_STATUS"
 fi
 
-# Preserve original permissions and ownership.
+# Preserve the original permissions and ownership.
 chmod --reference="$COWRIE_CFG" "$TMP_FILE"
 chown --reference="$COWRIE_CFG" "$TMP_FILE"
 
@@ -189,32 +260,16 @@ echo "Cowrie configuration updated successfully."
 echo "Configuration: $COWRIE_CFG"
 echo "Backup:        $BACKUP_FILE"
 echo
-echo "[output_dshield] settings:"
-
-awk '
-    /^[[:space:]]*\[output_dshield\][[:space:]]*$/ {
-        in_section = 1
-        print
-        next
-    }
-
-    in_section && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ {
-        exit
-    }
-
-    in_section && /^[[:space:]]*enabled[[:space:]]*=/ {
-        print
-    }
-
-    in_section && /^[[:space:]]*userid[[:space:]]*=/ {
-        print
-    }
-
-    in_section && /^[[:space:]]*auth_key[[:space:]]*=/ {
-        print "auth_key = [REDACTED]"
-    }
-
-    in_section && /^[[:space:]]*batch_size[[:space:]]*=/ {
-        print
-    }
-' "$COWRIE_CFG"
+echo "Updated [output_dshield] settings:"
+echo "  enabled = true"
+echo "  userid = $USERID_VALUE"
+echo "  auth_key = [REDACTED]"
+echo "  batch_size = 100"
+echo
+echo "Updated [honeypot] settings:"
+echo "  data_path: commented if present"
+echo "  filesystem: commented if present"
+echo "  processes: commented if present"
+echo "  auth_class = AuthRandom"
+echo "  auth_class_parameters = 2, 5, 10"
+```
