@@ -34,6 +34,27 @@ logging.root.setLevel(logging.DEBUG)
 
 date = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
 
+def parse_cowrie_timestamp(timestamp_str):
+    """
+    Parse a Cowrie JSON log timestamp into a naive UTC datetime.
+
+    Cowrie normally logs timestamps in UTC ending in "Z", e.g.:
+        2026-07-21T14:40:29.318984Z
+    but depending on configuration/timezone it may instead include an
+    explicit UTC offset, e.g.:
+        2026-07-21T14:40:29.318984-0500
+
+    This normalizes either form to a naive datetime in UTC so downstream
+    epoch-time math (which assumes UTC) continues to work correctly.
+    """
+    if timestamp_str.endswith("Z"):
+        return datetime.datetime.strptime(timestamp_str, "%Y-%m-%dT%H:%M:%S.%fZ")
+    else:
+        # Has an explicit offset instead of "Z" (e.g. -0500, +0200)
+        aware_time = datetime.datetime.strptime(timestamp_str, "%Y-%m-%dT%H:%M:%S.%f%z")
+        utc_time = aware_time.astimezone(datetime.timezone.utc)
+        return utc_time.replace(tzinfo=None)
+
 parser = argparse.ArgumentParser(description='DShield Honeypot Cowrie Data Identifiers')
 parser.add_argument('--logpath', dest='logpath', type=str, help='Path of cowrie json log files', default='/srv/cowrie/var/log/cowrie')
 parser.add_argument('--ttyfile', dest='ttyfile', type=str, help='Name of TTY associated TTY log file')
@@ -1039,7 +1060,7 @@ def print_session_info(data, sessions, attack_type):
         attackstring += "\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n\n"
         print(attackstring)
 
-        utc_time = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%fZ")
+        utc_time = parse_cowrie_timestamp(timestamp)
         epoch_time = (utc_time - datetime.datetime(1970, 1, 1)).total_seconds()
         sql = '''SELECT * FROM sessions WHERE session=? and timestamp=?'''
         cur.execute(sql, (session, epoch_time))
@@ -1147,7 +1168,7 @@ def get_commands(data, session):
         if each_entry['session'] == session:
             if "cowrie.command.input" in each_entry['eventid']:
                 commands += "# " + each_entry['input'] + "\n"
-                utc_time = datetime.datetime.strptime(each_entry['timestamp'], "%Y-%m-%dT%H:%M:%S.%fZ")
+                utc_time = parse_cowrie_timestamp(each_entry['timestamp'])
                 epoch_time = (utc_time - datetime.datetime(1970, 1, 1)).total_seconds()
                 sql = '''SELECT * FROM commands WHERE session=? and command=? and timestamp=?'''
                 cur.execute(sql, (session, each_entry['input'], epoch_time))
