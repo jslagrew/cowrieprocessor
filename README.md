@@ -15,6 +15,18 @@ The script requires the Dropbox python module to be installed, even if not being
 sudo apt-get install python3-dropbox
 ```
 
+Do do a quick download of the script and run under a virtual environment for a two day summary:
+
+```
+wget https://github.com/jslagrew/cowrieprocessor/raw/refs/heads/main/process_cowrie.py
+python3 -m venv .cowrieprocessor
+source .cowrieprocessor/bin/activate
+pip install --upgrade setuptools
+pip install --upgrade dropbox
+python process_cowrie.py --summarizedays 2
+deactivate
+```
+
 **Using the script - arguments**
 
 By default, the script will look for any Cowrie JSON logs in the /srv/cowrie/var/log/cowrie path (current default for DShield honeypot if setting is enabled to locally store these files). At least one argument to search for relevant data is needed and all other arguments are optional, but may allow for additional data enrichment. 
