@@ -297,7 +297,7 @@ def get_session_duration(session, data):
     for each_entry in data:
         if each_entry['session'] == session:
             if each_entry['eventid'] == "cowrie.session.closed":
-                duration = each_entry['duration']
+                duration = each_entry.get('duration', '')
 
     return duration
 
