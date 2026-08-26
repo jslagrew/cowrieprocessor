@@ -294,10 +294,28 @@ def get_session_id(data, type, match):
 def get_session_duration(session, data):
     logging.info("Getting session durations...")
     duration = ""
+    timestamps = []
     for each_entry in data:
         if each_entry['session'] == session:
+            # 1) Prefer the duration reported directly on session.closed
             if each_entry['eventid'] == "cowrie.session.closed":
-                duration = each_entry.get('duration', '')
+                duration = each_entry.get('duration', "")
+            # collect timestamps as a fallback in case duration is missing
+            if "timestamp" in each_entry:
+                timestamps.append(each_entry['timestamp'])
+
+    # 2) Fall back to calculating duration from first/last log timestamps
+    # for this session (e.g. session.closed missing 'duration', or the
+    # closing event fell outside the processed log window).
+    if duration == "" and len(timestamps) >= 2:
+        try:
+            parsed_timestamps = [parse_cowrie_timestamp(ts) for ts in timestamps]
+            calculated_duration = (max(parsed_timestamps) - min(parsed_timestamps)).total_seconds()
+            duration = calculated_duration
+            logging.info(f"Duration not found for session {session}; calculated {duration} seconds from first/last timestamps instead.")
+        except Exception as e:
+            logging.error(f"Failure calculating fallback session duration for session {session}: {e}")
+            duration = ""
 
     return duration
 
