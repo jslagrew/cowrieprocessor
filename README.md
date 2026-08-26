@@ -22,6 +22,7 @@ wget https://github.com/jslagrew/cowrieprocessor/raw/refs/heads/main/process_cow
 python3 -m venv .cowrieprocessor
 source .cowrieprocessor/bin/activate
 pip install --upgrade setuptools
+pip install --upgrade requests
 pip install --upgrade dropbox
 python process_cowrie.py --summarizedays 2
 deactivate
