@@ -47,6 +47,14 @@ By default, the script will look for any Cowrie JSON logs in the /srv/cowrie/var
   - --dbxsecret <Dropbox access secret> --> secret used with associated short-lived API access key
   - --dbxrefreshtoken <Dropbox refresh token> --> refresh token used to get new short-lived API access key
   - --spurapi <SPUR.us API key> --> If included, IP address data will be enriched with SPUR.us data for summary, upload and download data
+  - --accumulate --> Process changed Cowrie log files with buffered reports and a single final SQLite write. Progress is printed while processing.
+  - --sourcefile <SQLite path> --> Store the processor database at an explicit path. Without this option, it remains in the script working path as `cowrieprocessor.sqlite`.
+
+**Database integrity and repeat runs**
+
+New databases use `sessions.session` as a primary key and unique indexes for command, file, and processed-log identities. Existing databases gain unique indexes when they are opened. If an older database already contains missing or duplicate session IDs, processing stops and reports the problem so the records can be reconciled before a rerun. The processor does not silently choose a session or replace the database to resolve a conflict.
+
+With `--accumulate`, log files whose modification time has not changed since the previous run are skipped. The processed-file table records their state, and buffered records are appended in one transaction at the end. Reports and the SQLite file remain local unless a separate upload option is configured. Run `python -m unittest -v test_process_cowrie` for offline checks of no-command reports and database key behavior.
 
 **Locally created files**
 
