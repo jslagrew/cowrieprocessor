@@ -1,117 +1,87 @@
 # cowrieprocessor
-This project is still supported, but not being developed for new features. Check out the following repository for the next generation of this tool with many more features:
 
-https://github.com/datagen24/cowrieprocessor
+`process_cowrie.py` summarizes Cowrie JSON logs from a DShield or other Cowrie honeypot. It writes a SQLite database and two text reports: all processed sessions and an abnormal-session subset. The reports start with their summaries and have labeled separators before session details. The project also includes optional enrichment and upload helpers.
 
-The initial purpose of this application is helps simplify command input and file download data from DShield Honeypots (https://github.com/DShield-ISC/dshield). This Python applications is designed to process and summarize Cowrie logs (https://github.com/cowrie/cowrie). 
+The original single-honeypot script remains useful on its own. For processing **multiple sensors**, enriching and combining their databases, clustering commands, and generating cross-sensor reports, see [Multi-source processing](docs/multi-source-processing.md). Those additional scripts live in the companion private [`cowrieprocessor-processing` repository](https://github.com/jslagrew/cowrieprocessor-processing), which requires access; `process_cowrie.py` by itself does not perform the cross-sensor merge. The separate [next-generation project](https://github.com/datagen24/cowrieprocessor) is another implementation.
 
-![Snag_1690ca6](https://user-images.githubusercontent.com/82918323/169907140-5a53eb8d-26ae-4fa5-82a2-2bf7782311fa.png)
+```mermaid
+flowchart LR
+    A[One honeypot's Cowrie JSON logs] --> B[process_cowrie.py]
+    B --> C[Session, command, and file tables]
+    B --> D[All-session text report]
+    B --> E[Abnormal-session text report]
+    C --> F[Optional multi-source pipeline]
+```
 
 **Prerequisites**
 
-The script requires the Dropbox python module to be installed, even if not being used. To install the necessary module(s):
+Use Python 3.10 or later. The script imports `requests` and `dropbox` even when optional integrations are unused. Install them in the Python environment you use to run the script:
 
-```
-sudo apt-get install python3-dropbox
-```
-
-Do do a quick download of the script and run under a virtual environment for a two day summary:
-
-```
-wget https://github.com/jslagrew/cowrieprocessor/raw/refs/heads/main/process_cowrie.py
+```sh
 python3 -m venv .cowrieprocessor
 source .cowrieprocessor/bin/activate
-pip install --upgrade setuptools
-pip install --upgrade requests
-pip install --upgrade dropbox
-python process_cowrie.py --summarizedays 2
-deactivate
+python -m pip install requests dropbox
 ```
 
-**Using the script - arguments**
+On Windows, use your environment's `Scripts\activate` instead. Download or clone the repository, then run commands from a writable working directory. The script defaults to `/srv/cowrie/var/log/cowrie`; use `--logpath` elsewhere.
 
-By default, the script will look for any Cowrie JSON logs in the /srv/cowrie/var/log/cowrie path (current default for DShield honeypot if setting is enabled to locally store these files). At least one argument to search for relevant data is needed and all other arguments are optional, but may allow for additional data enrichment. 
+**Using the script — arguments**
 
-- Required Search Term (one required)
-  - --download <hash / file name) --> hash of file downloaded or otherwise created by honeypot (matches file download names in /srv/cowrie/var/lib/cowrie/downloads)
-  - --ttyfile <file name> --> file name of a tty file in /srv/cowrie/var/lib/cowrie/tty/
-  - --session <cowrie session number> --> session number that ties cowrie logs for a session together (found in logs)
-  - --summarizedays <number of days> --> Outline all attacks and summarize for period of days specified. For example, a value of '1' will reivew only attacks from teh current day. 
-    - This will create two different report text files within the destination folder. One will be the summary for every attack seen in that time period. Another file will contain only attacks that appeared more unique (low or absent virustotal hit count for malware or less than 5 instances of attacks comprised of the same number of commands executed during the attack.  
-- Optional Search Term
-  - --vtapi <VT API Key> --> VirusTotal API Key to enrich data with VT (will also download a local copy in working path with full JSON output)
-  - --email <email address> --> Your email address, which will be used to register query with DShield when querying for additional IP address data
-  - --logpath <path to cowrie JSON logs> --> Enter an alernate path where cowrie logs may be stored
-  - --dbxapi <Dropbox API Key> --> If included, summary data text reports will be uploaded to Dropbox account within 'cowriesummaries' folder
-  - --dbxkey <Dropbox access token> --> short-lived API access key for Dropbox account
-  - --dbxsecret <Dropbox access secret> --> secret used with associated short-lived API access key
-  - --dbxrefreshtoken <Dropbox refresh token> --> refresh token used to get new short-lived API access key
-  - --spurapi <SPUR.us API key> --> If included, IP address data will be enriched with SPUR.us data for summary, upload and download data
-  - --accumulate --> Process changed Cowrie log files with buffered reports and a single final SQLite write. Progress is printed while processing.
-  - --sourcefile <SQLite path> --> Store the processor database at an explicit path. Without this option, it remains in the script working path as `cowrieprocessor.sqlite`.
+Choose a scope with `--session`, `--downloadfile`, `--ttyfile`, or `--summarizedays`, or process matching log files in the supplied log directory. `--summarizedays N` currently selects the **N most recently modified Cowrie log files**; it is not an exact event-time window. Filenames must contain `cowrie.json`.
 
-**Database integrity and repeat runs**
+| Argument | Purpose |
+| --- | --- |
+| `--logpath PATH` | Cowrie JSON log directory. |
+| `--session ID` | Show a Cowrie session. |
+| `--downloadfile HASH` | Find sessions associated with a downloaded file hash. |
+| `--ttyfile NAME` | Find a TTY recording. |
+| `--summarizedays N` | Process the N latest Cowrie log files. |
+| `--accumulate` | Skip unchanged files in a persistent source database, buffer reports, and commit new rows at the end. |
+| `--sourcefile PATH` | Explicit source SQLite path; useful for repeat runs and one database per sensor. |
+| `--vtapi`, `--email`, `--spurapi`, `--urlhausapi` | Optional enrichment inputs for supported lookups. |
+| `--dbxapi` or `--dbxkey`/`--dbxsecret`/`--dbxrefreshtoken` | Optional Dropbox upload configuration. |
 
-New databases use `sessions.session` as a primary key and unique indexes for command, file, and processed-log identities. Existing databases gain unique indexes when they are opened. If an older database already contains missing or duplicate session IDs, processing stops and reports the problem so the records can be reconciled before a rerun. The processor does not silently choose a session or replace the database to resolve a conflict.
+**Command examples**
 
-With `--accumulate`, log files whose modification time has not changed since the previous run are skipped. The processed-file table records their state, and buffered records are appended in one transaction at the end. Reports and the SQLite file remain local unless a separate upload option is configured. Run `python -m unittest -v test_process_cowrie` for offline checks of no-command reports and database key behavior.
+```sh
+python process_cowrie.py --logpath /srv/cowrie/var/log/cowrie --summarizedays 2
+python process_cowrie.py --logpath /srv/cowrie/var/log/cowrie --session 0123456789ab
+python process_cowrie.py --logpath /srv/cowrie/var/log/cowrie --downloadfile a8460f446be540410004b1a8db4083773fa46f7fe76fa84219c93daa1669f8f2
+```
+
+For a persistent local source database:
+
+```sh
+python process_cowrie.py --logpath /path/to/cowrie/logs --accumulate --sourcefile /path/to/output/cowrieprocessor.sqlite
+```
+
+`--sourcefile` is resolved before the script changes into its timestamped report directory. Without it, the database is `cowrieprocessor.sqlite` in the starting working directory. Optional API or Dropbox arguments are supplied only when you intend to use those services; keep their values outside repository files.
 
 **Locally created files**
 
-Both text reports start with the overall summary, followed by their session details (when present). A labeled line separates each summary from its session details. The abnormal report's totals, command counts, VirusTotal classifications, and session lists include only sessions selected as abnormal.
+Each invocation creates a timestamped report directory in the starting working directory. It contains `*_report.txt` for all selected sessions and `*_abnormal_report.txt` for the abnormal subset, plus any cached enrichment responses produced by optional lookups. The source SQLite file contains `sessions`, `commands`, `files`, and `files_processed` tables. The abnormal report summary counts only abnormal sessions, including its command-count and VirusTotal breakdowns.
 
-(script working path)/cowrieprocessor.sqlite - SQLite database with attack summary data that's been processed
-  
-(script working path)/\<datetime processor run\>_\<summary request\>_report.txt - summary of all attacks during requested timespan
-  
-(script working path)/\<datetime processor run\>\_abnormal\_\<summary request\>_report.txt - summary of unusual attacks during requested timespan
-  
-(script working path)/\<datetime processor run\>/(filehash) - VirusTotal results for filehash in JSON format (searhed by file hash)
-
-(script working path)/\<datetime processor run\>/uh_(ipaddress) - URLhaus locally cached lookup results in JSON format (searched by IP)
-
-(script working path)/\<datetime processor run\>/files_(filehash) - VirusTotal response for files uploaded to VirusTotal
-  
-![Snag_29dea69c](https://user-images.githubusercontent.com/82918323/185350726-4b84a14f-bbca-4e23-ab50-85fc14973049.png)
-  
-This data is currently stored for troubleshooting and potential analysis in the future. Not all data received from URLHaus or VirusTotal is found in the summarized data and this raw JSON data can be reviewed for additional context. 
-  
-**Abnormal/unusual Attack Reports**
-
-When performing summary reviews of data, the script will also try to summarize the attacks and highlight any attack sessions that meet the following criteria
-  - Unusual number of commands (when comparing against other attacks during the summary time period)
-  - Malware submitted that is a recent additional to VirusTotal
-  
-![Snag_1684520](https://user-images.githubusercontent.com/82918323/169907013-e4235d4a-022b-43e3-addd-2538394dae93.png)
-
-**Dropbox Upload**
-
-Uploading to Dropbox required creating a Dropbox app associated with an account. Additional information on how to do this can be found within [Dropbox documentation](https://www.dropbox.com/developers/reference/getting-started#app%20console). 
-
-![Snag_29f91fd4](https://user-images.githubusercontent.com/82918323/185356936-fe9cb10f-9158-480e-a7c0-bb2782881254.png)
-
-# Command Examples
-
-```
-python3 process_cowrie.py --email <my email address> --vtapi <vt api key> --summarizedays 2
+```mermaid
+flowchart TD
+    A[Read Cowrie log file] --> B[Parse valid JSON events]
+    B --> C[Identify login sessions]
+    C --> D[Collect commands and transfers]
+    D --> E[Deduplicate and write SQLite]
+    D --> F[Write standard report]
+    D --> G[Select abnormal sessions]
+    G --> H[Write abnormal report]
 ```
 
-_Will output a summary of the last two days of attacks (today and yesterday)._
+**Database integrity and repeat runs**
 
-```
-python3 process_cowrie.py --email <my email address> --vtapi <vt api key> --downloadfile a8460f446be540410004b1a8db4083773fa46f7fe76fa84219c93daa1669f8f2
-```
-  
-_Will output attacks seen with the file hash given._
+New databases use `sessions.session` as a primary key. Existing databases without it receive a unique session index; commands use `(session, command, timestamp)` and files use `(session, hash, file_path)` unique indexes. If an older database already has duplicate or missing session IDs, processing stops for review instead of silently choosing a row. `files_processed` records filenames and modification times to skip unchanged inputs in `--accumulate` mode. Changed files can add previously unseen rows, but this is not a full replacement or correction mechanism. Session IDs are scoped to a source database; use the [multi-source merge](docs/multi-source-processing.md) when combining sensors.
 
-```
-python3 process_cowrie.py --email <my email address> --vtapi <vt api key> --dbxapi <dropbox api key> --summarizedays 2
-```
-  
-_Will process the last two days of cowrie data, enrich with URLHaus and VirusTotal data and upload to Dropbox using the Access Token (short-term API for testing)._
+For offline checks from a checkout, run `python -m unittest -v test_process_cowrie`. Inspect the actual database schema when analyzing an older export: earlier versions did not preserve all these constraints.
 
-```
-python3 process_cowrie.py --email <my email address> --vtapi <vt api key> --dbxkey <dropbox access token> --dbxsecret <dropbox secret> --dbxrefreshtoken <dropbox refresh token> --summarizedays 2
-```
-  
-_Will process the last two days of cowrie data, enrich with URLHaus and VirusTotal data and upload to Dropbox using OAuth workflow and Refresh Token for full automation._
+**Abnormal/unusual attack reports**
+
+The script identifies uncommon command counts and recent malware submissions while processing. Its abnormal text file contains the selected sessions and a summary of that subset. The selection is a heuristic for review, not a malware verdict.
+
+**Related tools**
+
+`submit_vtfiles.py`, `cowrie_malware_enrichment.py`, and `update-cowrie-dshield.sh` are separate utilities in this repository. They are not invoked by `process_cowrie.py` or the multi-source pipeline. Review their command-line arguments and local configuration before using them.
