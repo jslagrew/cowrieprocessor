@@ -16,6 +16,8 @@ import sqlite3
 import logging
 import sys
 import socket
+import shutil
+import tempfile
 
 logging_fhandler = logging.FileHandler("cowrieprocessor.err", encoding="utf-8")
 logging.root.addHandler(logging_fhandler)
@@ -1236,20 +1238,33 @@ spur_session.close()
 
 # ---- Write text reports ----
 if not accumulate:
-    with open(report_filename, "a") as rf:
-        rf.write(summarystring)
-    with open(abnormal_report_filename, "a") as rf:
-        rf.write(summarystring)
+    # Session details were written as each file was processed. Prepend the
+    # finished summary through a temporary file so large reports stay off RAM.
+    for filename in (report_filename, abnormal_report_filename):
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="",
+                                             dir=".", prefix=".cowrie_report_",
+                                             suffix=".tmp", delete=False) as output:
+                temporary_path = output.name
+                output.write(summarystring)
+                if os.path.exists(filename):
+                    with open(filename, "r", encoding="utf-8") as original:
+                        shutil.copyfileobj(original, output)
+            os.replace(temporary_path, filename)
+        finally:
+            if temporary_path and os.path.exists(temporary_path):
+                os.unlink(temporary_path)
 else:
     print("\nAll files processed. Writing output files and database...")
-    with open(report_filename, "a", encoding="utf-8") as rf:
+    with open(report_filename, "w", encoding="utf-8") as rf:
+        rf.write(summarystring)
         for s in accumulated_standard_strings:
             rf.write(s)
+    with open(abnormal_report_filename, "w", encoding="utf-8") as rf:
         rf.write(summarystring)
-    with open(abnormal_report_filename, "a", encoding="utf-8") as rf:
         for s in accumulated_abnormal_strings:
             rf.write(s)
-        rf.write(summarystring)
 
 # ---- Append accumulated rows to SQLite (one transaction, both modes) ----
 flush_to_sqlite()
