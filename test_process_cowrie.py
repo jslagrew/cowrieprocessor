@@ -33,31 +33,41 @@ def database_functions(path):
 
 class ProcessCowrieTests(unittest.TestCase):
     def test_login_without_commands_produces_report_and_session(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            logs = root / 'logs'
-            logs.mkdir()
-            events = [
-                {'eventid': 'cowrie.session.connect', 'session': 's1', 'protocol': 'ssh',
-                 'timestamp': '2026-10-30T12:00:00.000000Z', 'src_ip': '192.0.2.1'},
-                {'eventid': 'cowrie.login.success', 'session': 's1', 'username': 'root',
-                 'password': 'test', 'timestamp': '2026-10-30T12:00:01.000000Z', 'src_ip': '192.0.2.1'},
-                {'eventid': 'cowrie.session.closed', 'session': 's1', 'duration': 1.0,
-                 'timestamp': '2026-10-30T12:00:02.000000Z', 'src_ip': '192.0.2.1'},
-            ]
-            (logs / 'cowrie.json').write_text(''.join(json.dumps(event) + '\n' for event in events),
-                                              encoding='utf-8')
-            db_path = root / 'cowrie.sqlite'
-            result = subprocess.run([sys.executable, str(SCRIPT), '--logpath', str(logs),
-                                     '--sourcefile', str(db_path), '--accumulate'],
-                                    cwd=root, capture_output=True, text=True, timeout=30)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            reports = list(root.glob('*/*_report.txt'))
-            self.assertTrue(reports, result.stdout)
-            self.assertIn('Most Common Number of Commands:', reports[0].read_text(encoding='utf-8'))
-            with closing(sqlite3.connect(db_path)) as db:
-                self.assertEqual(db.execute('SELECT session, total_commands FROM sessions').fetchone(),
-                                 ('s1', 0))
+        for accumulate in (False, True):
+            with self.subTest(accumulate=accumulate), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                logs = root / 'logs'
+                logs.mkdir()
+                events = [
+                    {'eventid': 'cowrie.session.connect', 'session': 's1', 'protocol': 'ssh',
+                     'timestamp': '2026-10-30T12:00:00.000000Z', 'src_ip': '192.0.2.1'},
+                    {'eventid': 'cowrie.login.success', 'session': 's1', 'username': 'root',
+                     'password': 'test', 'timestamp': '2026-10-30T12:00:01.000000Z', 'src_ip': '192.0.2.1'},
+                    {'eventid': 'cowrie.session.closed', 'session': 's1', 'duration': 1.0,
+                     'timestamp': '2026-10-30T12:00:02.000000Z', 'src_ip': '192.0.2.1'},
+                ]
+                (logs / 'cowrie.json').write_text(''.join(json.dumps(event) + '\n' for event in events),
+                                                  encoding='utf-8')
+                db_path = root / 'cowrie.sqlite'
+                args = [sys.executable, str(SCRIPT), '--logpath', str(logs),
+                        '--sourcefile', str(db_path)]
+                if accumulate:
+                    args.append('--accumulate')
+                result = subprocess.run(args,
+                                        cwd=root, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                reports = list(root.glob('*/*_report.txt'))
+                self.assertEqual(len(reports), 2, result.stdout)
+                for report in reports:
+                    report_text = report.read_text(encoding='utf-8')
+                    self.assertTrue(report_text.lstrip().startswith('Total Number of Attacks:'), report)
+                    self.assertIn('Most Common Number of Commands:', report_text)
+                    self.assertEqual(report_text.count('Total Number of Attacks:'), 1)
+                    if 'abnormal' not in report.name:
+                        self.assertIn('s1', report_text)
+                with closing(sqlite3.connect(db_path)) as db:
+                    self.assertEqual(db.execute('SELECT session, total_commands FROM sessions').fetchone(),
+                                     ('s1', 0))
 
     def test_new_database_has_primary_key_and_unique_event_indexes(self):
         with tempfile.TemporaryDirectory() as temp:
