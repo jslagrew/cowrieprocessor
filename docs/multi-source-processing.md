@@ -67,6 +67,7 @@ flowchart TD
 
 ## Interpreting combined data
 
-The current combiner uses `sessions.session` as a primary key, unique `(session, command, timestamp)` and `(session, hash, file_path)` indexes, and `session_aliases` for identical cross-sensor duplicates. A reused session ID with conflicting content stops the merge. `honeypot` labels sessions; commands and files link by session ID. The clustered output adds command-sequence hashes, templates, and a `session_commands` row for sessions with commands.
+The current combiner uses `sessions.session` as a primary key, unique `(session, command, timestamp)` and `(session, hash, file_path)` indexes, and `session_aliases` for identical cross-sensor duplicates. A reused session ID with conflicting content receives a unique combined ID in all three tables, recorded with its original ID and sensor in `session_identity_map`. `honeypot` labels sessions; commands and files link by the combined session ID. The clustered output adds command-sequence hashes, templates, and a `session_commands` row for sessions with commands.
 
 Per-sensor `latest/` source databases persist across runs. Dated combined exports are **cumulative snapshots**, so consecutive exports overlap; do not add their totals together as if they were daily increments. The filename date is the run date, not an event-time boundary. For a particular export, inspect its `sqlite_master` schema and the run's `environment.json` and `summary.json`: older exports may predate key changes, and the runner records child-script hashes rather than a Git commit SHA.
+
