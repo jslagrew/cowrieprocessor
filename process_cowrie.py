@@ -112,6 +112,7 @@ os.chdir(date)
 attack_count = 0
 number_of_commands = []
 vt_classifications = []
+vt_classifications_by_session = collections.defaultdict(list)
 vt_recent_submissions = set()
 abnormal_attacks = set()
 uncommon_command_counts = set()
@@ -786,7 +787,8 @@ def process_session_info(data, sessions, attack_type):
 
     for session in sessions:
         global attack_count
-        attack_count += 1
+        if attack_type == "standard":
+            attack_count += 1
         protocol = get_protocol_login(session, data)
         session_duration = get_session_duration(session, data)
 
@@ -798,7 +800,8 @@ def process_session_info(data, sessions, attack_type):
         command_count = get_command_total(session, data)
         if not accumulate:
             print("Command Count: " + str(command_count))
-        number_of_commands.append(command_count)
+        if attack_type == "standard":
+            number_of_commands.append(command_count)
 
         downloaddata = get_file_download(session, data)
         uploaddata   = get_file_upload(session, data)
@@ -862,10 +865,10 @@ def process_session_info(data, sessions, attack_type):
                             'transfer_method': 'DOWNLOAD',
                             'added': time.time(),
                         })
-                    if vt_threat_classification == "":
-                        vt_classifications.append("<blank>")
-                    else:
-                        vt_classifications.append(vt_threat_classification)
+                    if attack_type == "standard":
+                        classification = vt_threat_classification or "<blank>"
+                        vt_classifications.append(classification)
+                        vt_classifications_by_session[session].append(classification)
                     attackstring += "{:>30s}  {}".format("VT First Submssion", datetime.datetime.fromtimestamp(int(vt_first_submission))) + "\n"
                     if (datetime.datetime.now() - datetime.datetime.fromtimestamp(int(vt_first_submission))).days <= 5:
                         abnormal_attacks.add(session)
@@ -1130,10 +1133,6 @@ command_number_dict = sorted(command_number_dict.items(), key=lambda x: x[1])
 abnormal_command_counts = [k for k, v in command_number_dict]
 abnormal_command_counts = abnormal_command_counts[0:int(len(abnormal_command_counts) * (2 / 3))]
 
-vt_counts = collections.Counter(vt_classifications)
-vt_classifications = sorted(vt_classifications, key=lambda x: -vt_counts[x])
-vt_class = set(vt_classifications)
-
 # Identify abnormal sessions from the in-memory _sessions_rows list (available in both modes).
 # _sessions_rows holds all new rows accumulated this run; also check existing rows via SQLite
 # for sessions that were already in the DB before this run started.
@@ -1161,36 +1160,54 @@ for each_session in all_session_ids:
             except:
                 logging.error(f"Failure adding session for uncommon commands {each_session}")
 
-# ---- Build summary string ----
-summarystring  = "{:>40s}  {:10s}".format("Total Number of Attacks:", str(attack_count)) + "\n"
-summarystring += "{:>40s}  {:10s}".format("Most Common Number of Commands:",
-                                           str(number_of_commands[0]) if number_of_commands else "0") + "\n"
-summarystring += "\n"
-summarystring += "{:>40s}  {:10s}".format("Number of Commands", "Times Seen") + "\n"
-summarystring += "{:>40s}  {:10s}".format("------------------", "----------") + "\n"
-for key, value in command_number_dict:
-    summarystring += "{:>40s}  {:10s}".format(str(key), str(value)) + "\n"
-summarystring += "\n"
-summarystring += "{:>48s}".format("VT Classifications") + "\n"
-summarystring += "{:>48s}".format("------------------") + "\n"
-for classification in vt_class:
-    summarystring += "{:>40s}  {:10s}".format(classification, str(vt_classifications.count(classification))) + "\n"
-summarystring += "\n"
-summarystring += "{:>60s}".format("Attacks With Uncommon Command Counts", "") + "\n"
-summarystring += "{:>60s}".format("------------------------------------") + "\n"
-for each_submission in uncommon_command_counts:
-    summarystring += "{:>40s}  {:10s}".format("", each_submission) + "\n"
-summarystring += "\n"
-summarystring += "{:>60s}".format("Attacks With Recent VT First Submission") + "\n"
-summarystring += "{:>60s}".format("---------------------------------------") + "\n"
-for each_submission in vt_recent_submissions:
-    summarystring += "{:>40s}  {:10s}".format("", each_submission) + "\n"
-summarystring += "\n"
-summarystring += "{:>50s}".format("Abnormal Attacks") + "\n"
-summarystring += "{:>50s}".format("----------------") + "\n"
-for each_attack in abnormal_attacks:
-    summarystring += "{:>40s}  {:10s}".format("", each_attack) + "\n"
-summarystring += "\n\n"
+# ---- Build separate summaries from each report's session population ----
+def build_summary(total, command_counts, classifications, uncommon_sessions,
+                  recent_vt_sessions, abnormal_sessions):
+    command_frequencies = collections.Counter(command_counts)
+    classification_frequencies = collections.Counter(classifications)
+    most_common_commands = command_frequencies.most_common(1)
+    lines = [
+        "{:>40s}  {:10s}".format("Total Number of Attacks:", str(total)),
+        "{:>40s}  {:10s}".format("Most Common Number of Commands:",
+                                str(most_common_commands[0][0]) if most_common_commands else "0"),
+        "",
+        "{:>40s}  {:10s}".format("Number of Commands", "Times Seen"),
+        "{:>40s}  {:10s}".format("------------------", "----------"),
+    ]
+    for count, frequency in sorted(command_frequencies.items(), key=lambda item: item[1]):
+        lines.append("{:>40s}  {:10s}".format(str(count), str(frequency)))
+    lines.extend(["", "{:>48s}".format("VT Classifications"),
+                  "{:>48s}".format("------------------")])
+    for classification, frequency in classification_frequencies.most_common():
+        lines.append("{:>40s}  {:10s}".format(classification, str(frequency)))
+    for title, underline, sessions in (
+        ("Attacks With Uncommon Command Counts", "------------------------------------", uncommon_sessions),
+        ("Attacks With Recent VT First Submission", "---------------------------------------", recent_vt_sessions),
+        ("Abnormal Attacks", "----------------", abnormal_sessions),
+    ):
+        lines.extend(["", "{:>60s}".format(title), "{:>60s}".format(underline)])
+        for session in sorted(sessions):
+            lines.append("{:>40s}  {:10s}".format("", session))
+    return "\n".join(lines) + "\n\n\n"
+
+
+summarystring = build_summary(attack_count, number_of_commands, vt_classifications,
+                              uncommon_command_counts, vt_recent_submissions, abnormal_attacks)
+abnormal_session_ids = sorted(abnormal_attacks.intersection(all_session_ids))
+abnormal_session_command_counts = [count for session in abnormal_session_ids
+                                   if (count := _get_command_count_for_session(session)) is not None]
+abnormal_classifications = [classification for session in abnormal_session_ids
+                            for classification in vt_classifications_by_session[session]]
+abnormal_summarystring = build_summary(
+    len(abnormal_session_ids), abnormal_session_command_counts, abnormal_classifications,
+    uncommon_command_counts.intersection(abnormal_session_ids),
+    vt_recent_submissions.intersection(abnormal_session_ids), abnormal_session_ids)
+
+REPORT_SEPARATOR = "=" * 96 + "\n{label} SESSION DETAILS\n" + "=" * 96 + "\n\n"
+
+
+def report_separator(label):
+    return REPORT_SEPARATOR.format(label=label)
 
 # ---- Determine report filenames ----
 if summarizedays:
@@ -1240,14 +1257,18 @@ spur_session.close()
 if not accumulate:
     # Session details were written as each file was processed. Prepend the
     # finished summary through a temporary file so large reports stay off RAM.
-    for filename in (report_filename, abnormal_report_filename):
+    for filename, report_summary, label in (
+        (report_filename, summarystring, "ALL"),
+        (abnormal_report_filename, abnormal_summarystring, "ABNORMAL"),
+    ):
         temporary_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="",
                                              dir=".", prefix=".cowrie_report_",
                                              suffix=".tmp", delete=False) as output:
                 temporary_path = output.name
-                output.write(summarystring)
+                output.write(report_summary)
+                output.write(report_separator(label))
                 if os.path.exists(filename):
                     with open(filename, "r", encoding="utf-8") as original:
                         shutil.copyfileobj(original, output)
@@ -1259,10 +1280,12 @@ else:
     print("\nAll files processed. Writing output files and database...")
     with open(report_filename, "w", encoding="utf-8") as rf:
         rf.write(summarystring)
+        rf.write(report_separator("ALL"))
         for s in accumulated_standard_strings:
             rf.write(s)
     with open(abnormal_report_filename, "w", encoding="utf-8") as rf:
-        rf.write(summarystring)
+        rf.write(abnormal_summarystring)
+        rf.write(report_separator("ABNORMAL"))
         for s in accumulated_abnormal_strings:
             rf.write(s)
 
