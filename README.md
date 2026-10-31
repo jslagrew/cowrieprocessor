@@ -58,6 +58,8 @@ With `--accumulate`, log files whose modification time has not changed since the
 
 **Locally created files**
 
+Both text reports start with the overall summary, followed by their session details (when present).
+
 (script working path)/cowrieprocessor.sqlite - SQLite database with attack summary data that's been processed
   
 (script working path)/\<datetime processor run\>_\<summary request\>_report.txt - summary of all attacks during requested timespan
