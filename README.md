@@ -58,7 +58,7 @@ With `--accumulate`, log files whose modification time has not changed since the
 
 **Locally created files**
 
-Both text reports start with the overall summary, followed by their session details (when present).
+Both text reports start with the overall summary, followed by their session details (when present). A labeled line separates each summary from its session details. The abnormal report's totals, command counts, VirusTotal classifications, and session lists include only sessions selected as abnormal.
 
 (script working path)/cowrieprocessor.sqlite - SQLite database with attack summary data that's been processed
   
